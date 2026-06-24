@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="ระบบทำข้อสอบออนไลน์สำหรับหน่วยงานราชการและกองทัพไทย - Royal Discipline Quiz Application">
+  <title>ระบบทำข้อสอบออนไลน์ - Royal Discipline</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Main Application Wrapper -->
+  <main class="app-container">
+
+    <!-- Global App Header (Hidden on Login Screen) -->
+    <header id="global-header" class="header-bar" style="display: none;">
+      <div class="brand-section">
+        <div class="military-logo">🎖️</div>
+        <h1 class="brand-title" id="main-header-title">ROYAL DISCIPLINE</h1>
+      </div>
+      <div class="user-status">
+        <div>สวัสดี: <span id="user-display-name" class="student-badge">...</span></div>
+        <button id="logout-btn" class="btn btn-outline" style="padding: 6px 12px; font-size: 0.85rem;">ออกระบบ</button>
+      </div>
+    </header>
+
+    <!-- SECTION 1: LOGIN PAGE -->
+    <section id="section-login" class="app-section active">
+      <div class="card login-box">
+        <div class="login-icon">🎖️</div>
+        <h2 class="login-title">QUIZ APP</h2>
+        <p class="login-subtitle">ระบบทำข้อสอบออนไลน์สำหรับหน่วยงาน</p>
+
+        <div id="login-error-msg" class="settings-box" style="background-color: var(--color-error-bg); border-color: var(--color-error); color: var(--color-error); display: none; margin-bottom: 20px;">
+          <!-- Dynamic error messages -->
+        </div>
+
+        <form id="login-form">
+          <div class="form-group">
+            <label class="form-label" for="login-student-id">รหัสนักเรียน / Student ID</label>
+            <input type="text" id="login-student-id" class="form-control" placeholder="ระบุรหัสนักเรียน (เช่น 66010123)" required autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="login-password">รหัสผ่าน / Password</label>
+            <input type="password" id="login-password" class="form-control" placeholder="ระบุรหัสผ่าน" required autocomplete="current-password">
+          </div>
+          <button type="submit" id="login-submit-btn" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
+            เข้าสู่ระบบ ➔
+          </button>
+        </form>
+        
+        <div style="margin-top: 25px;">
+          <button id="trigger-settings-btn" class="btn btn-outline" style="font-size: 0.8rem; padding: 6px 12px;">⚙️ ตั้งค่า API Web App</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: MAIN DASHBOARD -->
+    <section id="section-dashboard" class="app-section">
+      <!-- Welcome Banner -->
+      <div class="card welcome-card">
+        <button id="dashboard-settings-btn" class="setup-settings-btn">⚙️ ตั้งค่า API</button>
+        <h2 id="dashboard-welcome-user">สวัสดีคุณ...</h2>
+        <p>ยินดีต้อนรับสู่ระบบประเมินผลออนไลน์ กรุณาเลือกวิชาและปรับแต่งการตั้งค่าการสอบของท่านด้านล่าง</p>
+      </div>
+
+      <!-- Dashboard Error / Warning Banner -->
+      <div id="dashboard-status-banner" class="settings-box" style="display: none;"></div>
+
+      <!-- Active Subjects List -->
+      <h3 class="section-title">📚 วิชาที่เปิดประเมินผล</h3>
+      <div id="subjects-container" class="subject-grid">
+        <!-- Subjects will be loaded dynamically here -->
+        <div style="grid-column: 1/-1; text-align: center; padding: 40px 0; color: var(--color-text-muted);">
+          กำลังโหลดรายชื่อวิชา...
+        </div>
+      </div>
+
+      <!-- Leaderboard Section -->
+      <div class="card leaderboard-section">
+        <h3 class="section-title">🏆 ตารางจัดอันดับผู้ทำคะแนนสูงสุด (Leaderboard - Exam Mode)</h3>
+        <div class="table-responsive">
+          <table class="leaderboard-table">
+            <thead>
+              <tr>
+                <th style="width: 80px;">อันดับ</th>
+                <th>ชื่อ-นามสกุล</th>
+                <th>วิชา</th>
+                <th style="width: 120px;">คะแนน</th>
+                <th style="width: 150px;">เวลาที่ใช้</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-body">
+              <!-- Leaderboard rows will be loaded dynamically -->
+              <tr>
+                <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 30px;">
+                  กำลังโหลดข้อมูลการจัดอันดับ...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 3: QUIZ INTERFACE -->
+    <section id="section-quiz" class="app-section">
+      <div class="card" style="text-align: left;">
+        <!-- Quiz Top Row Info -->
+        <div class="quiz-header-info">
+          <div>
+            <h2 id="quiz-subject-display" style="font-size: 1.4rem; color: var(--color-primary); font-weight: 700;">วิชา: ...</h2>
+            <div style="display: flex; gap: 10px; margin-top: 5px; align-items: center;">
+              <span id="quiz-mode-badge" class="status-badge" style="font-size: 0.75rem; padding: 2px 8px; border: 1px solid var(--color-primary); color: var(--color-primary); background: var(--color-primary-light);">...</span>
+              <span class="question-counter" id="quiz-progress-text">ข้อ 0 จาก 0</span>
+            </div>
+          </div>
+          <div class="quiz-timer" id="quiz-timer-box">
+            ⏱️ เวลา: <span id="quiz-time-left">00:00</span>
+          </div>
+        </div>
+
+        <!-- Linear Progress Bar -->
+        <div class="progress-container">
+          <div id="quiz-progress-bar" class="progress-bar"></div>
+        </div>
+
+        <!-- Question Section -->
+        <article class="question-container">
+          <h3 id="quiz-question-text" class="question-text">โจทย์คำถามกำลังโหลด...</h3>
+          
+          <!-- Choices list -->
+          <div id="quiz-choices-container" class="choices-list">
+            <!-- Choices will be rendered dynamically -->
+          </div>
+        </article>
+
+        <!-- Navigation Buttons -->
+        <footer class="quiz-footer">
+          <button id="quiz-prev-btn" class="btn btn-outline">◄ ย้อนกลับ</button>
+          <button id="quiz-next-btn" class="btn btn-primary">ถัดไป ►</button>
+        </footer>
+      </div>
+    </section>
+
+    <!-- SECTION 4: RESULT SCREEN -->
+    <section id="section-result" class="app-section">
+      <div class="card" style="text-align: center;">
+        <header class="results-header">
+          <div id="result-icon" class="results-icon">🎉</div>
+          <h2 class="result-status-title" id="result-headline">ทำข้อสอบเสร็จสิ้น!</h2>
+          <p id="result-subject-name" style="color: var(--color-text-muted); font-size: 1.05rem; font-weight: 500;">คุณทำข้อสอบวิชา: คณิตศาสตร์ (MATH01)</p>
+        </header>
+
+        <!-- Score circle visual -->
+        <div class="score-badge-container">
+          <div id="result-score-circle" class="score-circle">
+            <span class="score-value" id="result-score-text">0 / 0</span>
+            <span class="score-label">คะแนนที่ได้</span>
+          </div>
+        </div>
+
+        <div>
+          <span id="result-status-badge" class="status-badge passed">ยินดีด้วย! ผ่านเกณฑ์</span>
+        </div>
+
+        <!-- Guided Feedback Panel -->
+        <div class="feedback-box">
+          <h3 class="feedback-title" id="feedback-panel-title">ผลการวิเคราะห์เพื่อพัฒนาตัวเอง</h3>
+          
+          <div id="feedback-content-area">
+            <!-- Contents will be rendered dynamically depending on Mode (Exam / Practice) -->
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <footer class="action-buttons">
+          <button id="result-retry-wrong-btn" class="btn btn-outline" style="display: none; border-color: var(--color-warning); color: var(--color-warning); background-color: var(--color-warning-bg);">
+            🔄 ทำเฉพาะข้อที่ตอบผิดอีกครั้ง
+          </button>
+          <button id="result-home-btn" class="btn btn-primary">กลับหน้าหลัก</button>
+        </footer>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Global API Settings Modal overlay -->
+  <dialog id="settings-modal" class="modal-overlay">
+    <div class="modal-content">
+      <h3 class="modal-title">⚙️ ตั้งค่า API Web App (Google Apps Script)</h3>
+      <div class="form-group">
+        <label class="form-label" for="settings-api-url">URL ของ Web App API</label>
+        <textarea id="settings-api-url" class="form-control" rows="3" placeholder="วาง URL ที่ได้จากการ Deploy Google Apps Script (https://script.google.com/...)" style="resize: vertical; font-size: 0.9rem;"></textarea>
+        <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 4px; display: block;">
+          * URL นี้ใช้สำหรับการติดต่อดึงข้อมูลและตรวจคะแนนกับ Google Sheet
+        </span>
+      </div>
+      <div class="modal-actions">
+        <button id="settings-cancel-btn" class="btn btn-outline" style="padding: 8px 16px; font-size: 0.9rem;">ยกเลิก</button>
+        <button id="settings-save-btn" class="btn btn-primary" style="padding: 8px 16px; font-size: 0.9rem;">บันทึก</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Script File Reference -->
+  <script src="app.js"></script>
+</body>
+</html>
