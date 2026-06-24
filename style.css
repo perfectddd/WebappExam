@@ -93,14 +93,15 @@ body {
 .military-logo {
   width: 40px;
   height: 40px;
-  background-color: var(--color-primary);
-  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
-  font-size: 20px;
-  font-weight: bold;
+}
+
+.military-logo img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
 }
 
 .brand-title {
@@ -240,9 +241,16 @@ body {
 }
 
 .login-icon {
-  font-size: 3rem;
-  color: var(--color-primary);
-  margin-bottom: 15px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.login-icon img {
+  width: 90px;
+  height: 90px;
+  object-fit: contain;
 }
 
 .login-title {
@@ -598,6 +606,15 @@ body {
 .results-icon {
   font-size: 4rem;
   margin-bottom: 15px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.results-icon img {
+  width: 90px;
+  height: 90px;
+  object-fit: contain;
 }
 
 .score-badge-container {
