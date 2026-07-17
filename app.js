@@ -13,15 +13,69 @@ const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbwh2CPhGuFXFfwL
 // ดึงค่า API URL จาก Query Parameter ใน URL (ถ้ามี) เช่น index.html?api=https://...
 const urlParams = new URLSearchParams(window.location.search);
 const queryApiUrl = urlParams.get('api');
-if (queryApiUrl) {
-  localStorage.setItem('webapp_exam_api_url', decodeURIComponent(queryApiUrl));
+function isAllowedApiUrl(value) {
+  if (value === 'DEMO') return true;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && parsed.hostname === 'script.google.com' && parsed.pathname.startsWith('/macros/s/');
+  } catch (e) {
+    return false;
+  }
+}
+
+if (queryApiUrl && isAllowedApiUrl(queryApiUrl)) {
+  safeSetStorage('webapp_exam_api_url', queryApiUrl);
 }
 
 // --- APPLICATION STATE ---
-let apiURL = localStorage.getItem('webapp_exam_api_url') || DEFAULT_API_URL;
-let studentSession = JSON.parse(localStorage.getItem('webapp_exam_session')) || null;
+const storedApiUrl = localStorage.getItem('webapp_exam_api_url');
+let apiURL = isAllowedApiUrl(storedApiUrl) ? storedApiUrl : DEFAULT_API_URL;
+function readJsonStorage(key, fallback) {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : fallback;
+  } catch (e) {
+    localStorage.removeItem(key);
+    return fallback;
+  }
+}
+function safeSetStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    console.warn(`Unable to persist ${key}:`, e);
+    return false;
+  }
+}
+let studentSession = readJsonStorage('webapp_exam_session', null);
 let quizState = null;
 let timerInterval = null;
+let submitInProgress = false;
+let retryQuestions = null;
+
+if (studentSession && apiURL !== 'DEMO' && !studentSession.sessionToken) {
+  localStorage.removeItem('webapp_exam_session');
+  studentSession = null;
+}
+
+function getSessionToken() {
+  return studentSession && studentSession.sessionToken ? studentSession.sessionToken : '';
+}
+
+async function postAPI(action, payload = {}) {
+  const response = await callAPI(apiURL, {
+    method: 'POST',
+    body: JSON.stringify({ action, ...payload, sessionToken: getSessionToken() }),
+    headers: { 'Content-Type': 'text/plain' }
+  });
+  if (response && response.success === false && /เซสชันหมดอายุ/.test(response.message || '')) {
+    localStorage.removeItem('webapp_exam_session');
+    studentSession = null;
+    showScreen('login');
+  }
+  return response;
+}
 
 // --- DOM ELEMENTS ---
 const screens = {
@@ -33,6 +87,7 @@ const screens = {
 
 const header = document.getElementById('global-header');
 const userDisplayName = document.getElementById('user-display-name');
+const userRole = document.getElementById('user-role');
 const logoutBtn = document.getElementById('logout-btn');
 
 // Login Elements
@@ -113,7 +168,7 @@ const MOCK_QUESTIONS = {
   ]
 };
 
-let MOCK_SCORES = JSON.parse(localStorage.getItem('webapp_exam_mock_scores')) || [
+let MOCK_SCORES = readJsonStorage('webapp_exam_mock_scores', null) || [
   { rank: 1, name: 'ส.อ. อรัญ ใฝ่ดี', subjectName: 'คณิตศาสตร์พื้นฐาน (ทบ.)', score: 10, totalQuestions: 10, durationSeconds: 185 },
   { rank: 2, name: 'นรต. วชิรวิทย์ ตั้งใจ', subjectName: 'ภาษาอังกฤษเฉพาะทางทหาร', score: 5, totalQuestions: 5, durationSeconds: 95 },
   { rank: 3, name: 'พลทหาร อดทน เสมอ', subjectName: 'คณิตศาสตร์พื้นฐาน (ทบ.)', score: 9, totalQuestions: 10, durationSeconds: 220 },
@@ -122,6 +177,15 @@ let MOCK_SCORES = JSON.parse(localStorage.getItem('webapp_exam_mock_scores')) ||
 ];
 
 // --- HELPER FUNCTIONS ---
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 // Switch screens with smooth animation
 function showScreen(screenId) {
@@ -167,7 +231,7 @@ function updateApiWarningState() {
       if (demoBtn) {
         demoBtn.addEventListener('click', () => {
           apiURL = 'DEMO';
-          localStorage.setItem('webapp_exam_api_url', 'DEMO');
+          safeSetStorage('webapp_exam_api_url', 'DEMO');
           alert('เปิดใช้งานโหมดทดลองเรียบร้อยแล้ว!\nสามารถล็อกอินด้วย:\nรหัส: 66010123\nรหัสผ่าน: pass1234');
           updateApiWarningState();
           checkSession();
@@ -188,6 +252,8 @@ function updateApiWarningState() {
 function checkSession() {
   if (studentSession) {
     userDisplayName.textContent = studentSession.name;
+    userRole.textContent = studentSession.role === 'admin' ? 'Admin' : studentSession.role === 'instructor' ? 'ครูฝึกสอน' : 'นักเรียน';
+    userRole.className = `status-badge ${studentSession.role === 'student' ? 'passed' : ''}`;
     dashboardWelcomeUser.textContent = `สวัสดีคุณ: ${studentSession.name}`;
     showScreen('dashboard');
     if (updateApiWarningState()) {
@@ -249,8 +315,12 @@ settingsCancelBtn.addEventListener('click', () => {
 // Save settings API URL
 settingsSaveBtn.addEventListener('click', () => {
   const value = settingsApiUrl.value.trim();
+  if (!isAllowedApiUrl(value)) {
+    alert('URL ไม่ถูกต้อง: รองรับเฉพาะ Google Apps Script Web App ผ่าน HTTPS หรือ DEMO');
+    return;
+  }
   apiURL = value;
-  localStorage.setItem('webapp_exam_api_url', value);
+  safeSetStorage('webapp_exam_api_url', value);
   settingsModal.classList.remove('show');
 
   if (studentSession) {
@@ -281,15 +351,16 @@ loginForm.addEventListener('submit', async (e) => {
   loginErrorMsg.style.display = 'none';
 
   try {
-    const targetUrl = `${apiURL}?action=login&studentId=${encodeURIComponent(studentId)}&password=${encodeURIComponent(password)}`;
-    const res = await callAPI(targetUrl);
+    const res = await postAPI('login', { studentId, password });
 
     if (res.success) {
       studentSession = {
         studentId: res.studentId,
-        name: res.name
+        name: res.name,
+        role: res.role || 'student',
+        sessionToken: res.sessionToken || ''
       };
-      localStorage.setItem('webapp_exam_session', JSON.stringify(studentSession));
+      safeSetStorage('webapp_exam_session', JSON.stringify(studentSession));
       loginStudentId.value = '';
       loginPassword.value = '';
       checkSession();
@@ -327,6 +398,13 @@ resultHomeBtn.addEventListener('click', () => {
   }
 });
 
+resultRetryWrongBtn.addEventListener('click', () => {
+  if (!retryQuestions || retryQuestions.length === 0) return;
+  if (confirm(`คุณต้องการสอบแก้ตัวสำหรับข้อสอบที่ทำผิดจำนวน ${retryQuestions.length} ข้อ หรือไม่?`)) {
+    startQuiz(quizState.subjectCode, quizState.subjectName, 'Practice', retryQuestions.length, retryQuestions);
+  }
+});
+
 // --- CORE LOGIC: FETCH DASHBOARD DATA ---
 
 // Load subjects dynamically
@@ -334,10 +412,12 @@ async function loadSubjects() {
   subjectsContainer.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px 0; color: var(--color-text-muted);">กำลังโหลดรายชื่อวิชา...</div>`;
 
   try {
-    const targetUrl = `${apiURL}?action=getSubjects`;
-    const res = await callAPI(targetUrl);
+    const res = await postAPI('getSubjects');
 
     if (res.success) {
+      if (!Array.isArray(res.subjects)) {
+        throw new Error('รูปแบบข้อมูลวิชาไม่ถูกต้อง');
+      }
       if (res.subjects.length === 0) {
         subjectsContainer.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px 0; color: var(--color-text-muted);">ไม่มีรายชื่อวิชาที่เปิดสอบในขณะนี้</div>`;
         return;
@@ -349,8 +429,8 @@ async function loadSubjects() {
         card.className = 'subject-card';
 
         card.innerHTML = `
-          <div class="subject-code">${subject.subjectCode}</div>
-          <div class="subject-name">${subject.subjectName}</div>
+          <div class="subject-code">${escapeHtml(subject.subjectCode)}</div>
+          <div class="subject-name">${escapeHtml(subject.subjectName)}</div>
           <div class="quiz-config">
             <div class="form-group" style="margin-bottom: 0;">
               <label class="form-label" style="font-size: 0.8rem; margin-bottom: 4px;">จำนวนข้อที่ต้องการทำ:</label>
@@ -399,7 +479,7 @@ async function loadSubjects() {
         subjectsContainer.appendChild(card);
       });
     } else {
-      subjectsContainer.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px 0; color: var(--color-error);">${res.message || 'ไม่สามารถดึงข้อมูลวิชาได้'}</div>`;
+      subjectsContainer.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px 0; color: var(--color-error);">${escapeHtml(res.message || 'ไม่สามารถดึงข้อมูลวิชาได้')}</div>`;
     }
   } catch (err) {
     subjectsContainer.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px 0; color: var(--color-error);">เกิดข้อผิดพลาดในการโหลดวิชา กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</div>`;
@@ -411,10 +491,12 @@ async function loadLeaderboard() {
   leaderboardBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 30px;">กำลังโหลดตารางอันดับ...</td></tr>`;
 
   try {
-    const targetUrl = `${apiURL}?action=getLeaderboard`;
-    const res = await callAPI(targetUrl);
+    const res = await postAPI('getLeaderboard');
 
     if (res.success) {
+      if (!Array.isArray(res.leaderboard)) {
+        throw new Error('รูปแบบข้อมูล Leaderboard ไม่ถูกต้อง');
+      }
       if (res.leaderboard.length === 0) {
         leaderboardBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 30px;">ยังไม่มีข้อมูลประวัติผู้เข้าสอบในบอร์ดคะแนน</td></tr>`;
         return;
@@ -432,15 +514,15 @@ async function loadLeaderboard() {
 
         row.innerHTML = `
           <td><span class="rank-badge">${record.rank}</span></td>
-          <td style="font-weight: 600;">${record.name}</td>
-          <td>${record.subjectName}</td>
+          <td style="font-weight: 600;">${escapeHtml(record.name)}</td>
+          <td>${escapeHtml(record.subjectName)}</td>
           <td style="font-weight: 700; color: var(--color-primary);">${record.score} / ${record.totalQuestions}</td>
           <td>${timeFormatted}</td>
         `;
         leaderboardBody.appendChild(row);
       });
     } else {
-      leaderboardBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--color-error); padding: 30px;">ไม่สามารถโหลดบอร์ดคะแนนได้: ${res.message}</td></tr>`;
+      leaderboardBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--color-error); padding: 30px;">ไม่สามารถโหลดบอร์ดคะแนนได้: ${escapeHtml(res.message)}</td></tr>`;
     }
   } catch (err) {
     leaderboardBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--color-error); padding: 30px;">เกิดข้อผิดพลาดในการสื่อสารกับระบบ Leaderboard</td></tr>`;
@@ -451,6 +533,7 @@ async function loadLeaderboard() {
 
 // Initialize and start a new quiz session
 async function startQuiz(subjectCode, subjectName, mode, questionLimit, existingQuestions = null) {
+  submitInProgress = false;
   showScreen('quiz');
   quizSubjectDisplay.textContent = `วิชา: ${subjectName}`;
   quizModeBadge.textContent = mode === 'Exam' ? 'สอบจริง (Exam)' : 'ฝึกซ้อม (Practice)';
@@ -471,13 +554,15 @@ async function startQuiz(subjectCode, subjectName, mode, questionLimit, existing
       finalQuestions = existingQuestions;
     } else {
       // Load all questions from database API
-      const targetUrl = `${apiURL}?action=getQuestions&subjectCode=${encodeURIComponent(subjectCode)}`;
-      const res = await callAPI(targetUrl);
+      const res = await postAPI('getQuestions', { subjectCode });
 
       if (!res.success) {
         throw new Error(res.message || 'โหลดข้อสอบไม่สำเร็จ');
       }
 
+      if (!Array.isArray(res.questions)) {
+        throw new Error('รูปแบบข้อมูลข้อสอบไม่ถูกต้อง');
+      }
       if (res.questions.length === 0) {
         alert('วิชานี้ยังไม่มีคำถามในคลังข้อสอบ กรุณาติดต่อผู้ดูแลระบบ');
         showScreen('dashboard');
@@ -513,7 +598,11 @@ async function startQuiz(subjectCode, subjectName, mode, questionLimit, existing
     };
 
     // Save state to localStorage to prevent refresh loss (Anti-F5)
-    localStorage.setItem('webapp_exam_state', JSON.stringify(quizState));
+    try {
+      localStorage.setItem('webapp_exam_state', JSON.stringify(quizState));
+    } catch (storageError) {
+      throw new Error('ไม่สามารถบันทึกสถานะการสอบในเครื่องได้');
+    }
 
     // Begin timer countdown loop
     startTimer();
@@ -555,9 +644,9 @@ function renderQuestion() {
     const labelChar = ['ก.', 'ข.', 'ค.', 'ง.'][index] || '';
 
     choiceItem.innerHTML = `
-      <input type="radio" name="quiz-choice" value="${choice}" ${savedAnswer === choice ? 'checked' : ''}>
+      <input type="radio" name="quiz-choice" value="${escapeHtml(choice)}" ${savedAnswer === choice ? 'checked' : ''}>
       <span class="choice-custom-radio"></span>
-      <span class="choice-text"><strong>${labelChar}</strong> ${choice}</span>
+      <span class="choice-text"><strong>${labelChar}</strong> ${escapeHtml(choice)}</span>
     `;
 
     // Bind click trigger for visually selecting card border
@@ -595,7 +684,11 @@ function saveAnswer() {
 
   if (checkedRadio) {
     quizState.answers[currentQ.questionId] = checkedRadio.value;
-    localStorage.setItem('webapp_exam_state', JSON.stringify(quizState));
+    try {
+      localStorage.setItem('webapp_exam_state', JSON.stringify(quizState));
+    } catch (storageError) {
+      console.warn('Unable to persist quiz state:', storageError);
+    }
   }
 }
 
@@ -637,6 +730,7 @@ function startTimer() {
     if (timeLeft <= 0) {
       clearInterval(timerInterval);
       quizTimeLeft.textContent = '00:00';
+      if (submitInProgress) return;
       alert('หมดเวลาทำข้อสอบแล้ว! ระบบจะทำการส่งข้อสอบของคุณโดยอัตโนมัติ');
       submitQuiz();
       return;
@@ -660,9 +754,13 @@ function startTimer() {
 
 // Submit answers to backend API
 async function submitQuiz() {
+  if (submitInProgress) return;
+  submitInProgress = true;
+
   if (timerInterval) clearInterval(timerInterval);
 
   if (!quizState) {
+    submitInProgress = false;
     showScreen('dashboard');
     return;
   }
@@ -714,15 +812,18 @@ async function submitQuiz() {
     }
   } catch (err) {
     alert(`ไม่สามารถส่งคำตอบได้เนื่องจาก: ${err.message}\nโปรดลองใหม่อีกครั้ง หรือแคปหน้าจอเพื่อขอความช่วยเหลือ`);
-    // Restart timer to let user try again
+    submitInProgress = false;
     quizNextBtn.disabled = false;
     quizNextBtn.innerHTML = 'ส่งคำตอบ ➔';
-    startTimer();
+    if (quizState && Date.now() - quizState.startEpoch < quizState.durationSeconds * 1000) {
+      startTimer();
+    }
   }
 }
 
 // Render result values and Guided Feedback (Active Learning)
 function renderResults(data) {
+  retryQuestions = null;
   resultSubjectName.textContent = `คุณทำข้อสอบวิชา: ${quizState.subjectName} (${quizState.mode === 'Exam' ? 'สอบจริง' : 'ฝึกซ้อม'})`;
   resultScoreText.textContent = `${data.score} / ${data.totalQuestions}`;
 
@@ -765,7 +866,7 @@ function renderResults(data) {
       data.incorrectTopics.forEach(topic => {
         const item = document.createElement('div');
         item.className = 'topic-item';
-        item.innerHTML = `<span>📖</span> <span>หัวข้อ: ${topic}</span>`;
+        item.innerHTML = `<span>📖</span> <span>หัวข้อ: ${escapeHtml(topic)}</span>`;
         list.appendChild(item);
       });
       feedbackContentArea.appendChild(list);
@@ -790,6 +891,9 @@ function renderResults(data) {
 
     const wrongQuestionsToRetry = [];
 
+    if (!Array.isArray(data.results)) {
+      throw new Error('ไม่พบรายละเอียดผลสอบจากระบบ');
+    }
     data.results.forEach((qResult, index) => {
       const qCard = document.createElement('div');
       const isCorrect = qResult.correct;
@@ -815,7 +919,7 @@ function renderResults(data) {
 
         choicesHtml += `
           <div class="review-choice ${statusClass}">
-            <strong>${labelChar}</strong> ${choice} ${qResult.selectedAnswer === choice ? (isCorrect ? ' (ถูกต้อง)' : ' (คุณเลือก - ผิด)') : ''}
+            <strong>${labelChar}</strong> ${escapeHtml(choice)} ${qResult.selectedAnswer === choice ? (isCorrect ? ' (ถูกต้อง)' : ' (คุณเลือก - ผิด)') : ''}
           </div>
         `;
       });
@@ -823,16 +927,16 @@ function renderResults(data) {
       qCard.innerHTML = `
         <div class="review-question-header">
           <span class="review-indicator">${isCorrect ? '🟢 ถูกต้อง' : '🔴 ตอบผิด'}</span>
-          <span>หัวข้อ: ${qResult.topic}</span>
+          <span>หัวข้อ: ${escapeHtml(qResult.topic)}</span>
         </div>
-        <div class="review-question-text">ข้อที่ ${index + 1}: ${qResult.questionText}</div>
+        <div class="review-question-text">ข้อที่ ${index + 1}: ${escapeHtml(qResult.questionText)}</div>
         <div class="review-choices">
           ${choicesHtml}
         </div>
         ${!isCorrect ? `
           <div class="review-explanation">
             <strong>💡 คำใบ้/หลักการทบทวน:</strong>
-            ${qResult.rationale}
+            ${escapeHtml(qResult.rationale)}
           </div>
         ` : ''}
       `;
@@ -845,15 +949,9 @@ function renderResults(data) {
     if (wrongQuestionsToRetry.length > 0) {
       resultRetryWrongBtn.style.display = 'inline-flex';
 
-      // Remove old event listener and add new one
-      const newBtn = resultRetryWrongBtn.cloneNode(true);
-      resultRetryWrongBtn.parentNode.replaceChild(newBtn, resultRetryWrongBtn);
-
-      newBtn.addEventListener('click', () => {
-        if (confirm(`คุณต้องการสอบแก้ตัวสำหรับข้อสอบที่ทำผิดจำนวน ${wrongQuestionsToRetry.length} ข้อ หรือไม่?`)) {
-          startQuiz(quizState.subjectCode, quizState.subjectName, 'Practice', wrongQuestionsToRetry.length, wrongQuestionsToRetry);
-        }
-      });
+      retryQuestions = wrongQuestionsToRetry;
+    } else {
+      retryQuestions = null;
     }
   }
 }
@@ -961,6 +1059,22 @@ async function simulateMockAPI(url, options = {}) {
     const bodyObj = JSON.parse(options.body);
     const postAction = bodyObj.action;
 
+    if (postAction === 'login') {
+      const user = MOCK_USERS.find(u => u.id === bodyObj.studentId && u.password === bodyObj.password);
+      if (user) return { success: true, studentId: user.id, name: user.name, role: user.id === 'admin' ? 'admin' : 'student', sessionToken: `demo-${user.id}` };
+      return { success: false, message: 'รหัสนักเรียนหรือรหัสผ่านไม่ถูกต้อง' };
+    }
+
+    if (postAction === 'getSubjects') return { success: true, subjects: MOCK_SUBJECTS };
+    if (postAction === 'getQuestions') {
+      const questions = MOCK_QUESTIONS[bodyObj.subjectCode] || [];
+      return { success: true, questions: questions.map(q => ({ questionId: q.questionId, questionText: q.questionText, choices: q.choices })) };
+    }
+    if (postAction === 'getLeaderboard') {
+      const sorted = [...MOCK_SCORES].sort((a, b) => (b.score / b.totalQuestions) - (a.score / a.totalQuestions) || a.durationSeconds - b.durationSeconds);
+      return { success: true, leaderboard: sorted.slice(0, 10).map((rec, i) => ({ ...rec, rank: i + 1 })) };
+    }
+
     if (postAction === 'submitQuiz') {
       const studentId = bodyObj.studentId;
       const name = bodyObj.name;
@@ -1019,7 +1133,7 @@ async function simulateMockAPI(url, options = {}) {
           durationSeconds: durationSeconds
         });
 
-        localStorage.setItem('webapp_exam_mock_scores', JSON.stringify(MOCK_SCORES));
+      safeSetStorage('webapp_exam_mock_scores', JSON.stringify(MOCK_SCORES));
       }
 
       if (mode === 'Exam') {

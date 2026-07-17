@@ -16,24 +16,7 @@
 
 // Handle CORS and preflight requests
 function doGet(e) {
-  var action = e.parameter.action;
-  var response = { success: false, message: "Invalid action" };
-  
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    
-    if (action === "login") {
-      response = handleLogin(ss, e.parameter.studentId, e.parameter.password);
-    } else if (action === "getSubjects") {
-      response = handleGetSubjects(ss);
-    } else if (action === "getQuestions") {
-      response = handleGetQuestions(ss, e.parameter.subjectCode);
-    } else if (action === "getLeaderboard") {
-      response = handleGetLeaderboard(ss);
-    }
-  } catch (err) {
-    response = { success: false, message: err.toString() };
-  }
+  var response = { success: false, message: "รองรับเฉพาะ POST API เพื่อป้องกันข้อมูลรับรองใน URL" };
   
   return ContentService.createTextOutput(JSON.stringify(response))
     .setMimeType(ContentService.MimeType.JSON);
@@ -43,20 +26,46 @@ function doPost(e) {
   var response = { success: false, message: "Invalid post action" };
   
   try {
+    if (!e || !e.postData || !e.postData.contents) {
+      throw new Error("ไม่พบข้อมูล POST");
+    }
     var postData = JSON.parse(e.postData.contents);
+    if (!postData || typeof postData !== "object") {
+      throw new Error("รูปแบบข้อมูล POST ไม่ถูกต้อง");
+    }
     var action = postData.action;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
-    if (action === "submitQuiz") {
-      response = handleSubmitQuiz(
-        ss,
-        postData.studentId,
-        postData.name,
-        postData.subjectCode,
-        postData.mode,
-        postData.durationSeconds,
-        postData.answers
-      );
+    if (action === "login") {
+      response = handleLogin(ss, postData.studentId, postData.password);
+      if (response.success) {
+        response.sessionToken = createSessionToken({
+          studentId: response.studentId,
+          name: response.name,
+          role: response.role
+        });
+      }
+    } else {
+      var session = getSessionFromToken(postData.sessionToken);
+      if (!session) {
+        response = { success: false, message: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่" };
+      } else if (action === "getSubjects") {
+        response = handleGetSubjects(ss);
+      } else if (action === "getQuestions") {
+        response = handleGetQuestions(ss, postData.subjectCode);
+      } else if (action === "getLeaderboard") {
+        response = handleGetLeaderboard(ss);
+      } else if (action === "submitQuiz") {
+        response = handleSubmitQuiz(
+          ss,
+          session.studentId,
+          session.name,
+          postData.subjectCode,
+          postData.mode,
+          postData.durationSeconds,
+          postData.answers
+        );
+      }
     }
   } catch (err) {
     response = { success: false, message: err.toString() };
@@ -64,6 +73,23 @@ function doPost(e) {
   
   return ContentService.createTextOutput(JSON.stringify(response))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function createSessionToken(user) {
+  var token = Utilities.getUuid();
+  CacheService.getScriptCache().put("quiz_session:" + token, JSON.stringify(user), 21600);
+  return token;
+}
+
+function getSessionFromToken(token) {
+  if (!token) return null;
+  var raw = CacheService.getScriptCache().get("quiz_session:" + String(token));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
 }
 
 // 1. LOGIN HANDLER
@@ -76,11 +102,15 @@ function handleLogin(ss, studentId, password) {
   if (!sheet) return { success: false, message: "ไม่พบชีต Users" };
   
   var data = sheet.getDataRange().getValues();
+  if (!data || data.length === 0 || !data[0]) {
+    return { success: false, message: "ชีต Users ยังไม่มี header" };
+  }
   // Columns: StudentID, Password, Name
   var headers = data[0];
   var idIdx = headers.indexOf("StudentID");
   var pwIdx = headers.indexOf("Password");
   var nameIdx = headers.indexOf("Name");
+  var roleIdx = headers.indexOf("Role");
   
   if (idIdx === -1 || pwIdx === -1 || nameIdx === -1) {
     return { success: false, message: "โครงสร้างตาราง Users ไม่ถูกต้อง" };
@@ -90,10 +120,13 @@ function handleLogin(ss, studentId, password) {
     var row = data[i];
     if (String(row[idIdx]).trim() === String(studentId).trim()) {
       if (String(row[pwIdx]).trim() === String(password).trim()) {
+        var role = roleIdx === -1 || !row[roleIdx] ? "student" : String(row[roleIdx]).trim().toLowerCase();
+        if (["student", "instructor", "admin"].indexOf(role) === -1) role = "student";
         return { 
           success: true, 
           studentId: String(row[idIdx]).trim(),
-          name: row[nameIdx] 
+          name: row[nameIdx],
+          role: role
         };
       } else {
         return { success: false, message: "รหัสผ่านไม่ถูกต้อง" };
@@ -110,6 +143,9 @@ function handleGetSubjects(ss) {
   if (!sheet) return { success: false, message: "ไม่พบชีต Subjects" };
   
   var data = sheet.getDataRange().getValues();
+  if (!data || data.length === 0 || !data[0]) {
+    return { success: false, message: "ชีต Subjects ยังไม่มี header" };
+  }
   // Columns: SubjectCode, SubjectName, Status
   var headers = data[0];
   var codeIdx = headers.indexOf("SubjectCode");
@@ -144,6 +180,9 @@ function handleGetQuestions(ss, subjectCode) {
   if (!sheet) return { success: false, message: "ไม่พบชีต Questions" };
   
   var data = sheet.getDataRange().getValues();
+  if (!data || data.length === 0 || !data[0]) {
+    return { success: false, message: "ชีต Questions ยังไม่มี header" };
+  }
   // Columns: SubjectCode, QuestionID, QuestionText, ChoiceA, ChoiceB, ChoiceC, ChoiceD
   var headers = data[0];
   var subCodeIdx = headers.indexOf("SubjectCode");
@@ -180,14 +219,27 @@ function handleGetQuestions(ss, subjectCode) {
 
 // 4. SUBMIT & GRADE QUIZ HANDLER
 function handleSubmitQuiz(ss, studentId, name, subjectCode, mode, durationSeconds, answers) {
-  if (!studentId || !subjectCode || !mode || !answers) {
+  if (!studentId || !subjectCode || !mode || !Array.isArray(answers) || answers.length === 0 || answers.length > 100) {
     return { success: false, message: "ข้อมูลการส่งข้อสอบไม่ครบถ้วน" };
+  }
+  if (mode !== "Exam" && mode !== "Practice") {
+    return { success: false, message: "รูปแบบการสอบไม่ถูกต้อง" };
+  }
+  var seenQuestionIds = {};
+  for (var a = 0; a < answers.length; a++) {
+    if (!answers[a] || !answers[a].questionId || seenQuestionIds[String(answers[a].questionId)]) {
+      return { success: false, message: "รายการคำถามซ้ำหรือไม่ถูกต้อง" };
+    }
+    seenQuestionIds[String(answers[a].questionId)] = true;
   }
   
   var qSheet = ss.getSheetByName("Questions");
   if (!qSheet) return { success: false, message: "ไม่พบชีต Questions" };
   
   var qData = qSheet.getDataRange().getValues();
+  if (!qData || qData.length === 0 || !qData[0]) {
+    return { success: false, message: "ชีต Questions ยังไม่มี header" };
+  }
   var qHeaders = qData[0];
   var qIdIdx = qHeaders.indexOf("QuestionID");
   var qTextIdx = qHeaders.indexOf("QuestionText");
@@ -198,6 +250,9 @@ function handleSubmitQuiz(ss, studentId, name, subjectCode, mode, durationSecond
   var qAnsIdx = qHeaders.indexOf("CorrectAnswer");
   var qTopicIdx = qHeaders.indexOf("Topic");
   var qRationaleIdx = qHeaders.indexOf("Rationale");
+  if (qIdIdx === -1 || qTextIdx === -1 || qChoiceAIdx === -1 || qChoiceBIdx === -1 || qChoiceCIdx === -1 || qChoiceDIdx === -1 || qAnsIdx === -1) {
+    return { success: false, message: "โครงสร้างตาราง Questions ไม่ถูกต้อง" };
+  }
   
   // Build a Map of questions in DB for fast lookup
   var qMap = {};
@@ -217,6 +272,12 @@ function handleSubmitQuiz(ss, studentId, name, subjectCode, mode, durationSecond
   var totalQuestions = answers.length;
   var results = [];
   var incorrectTopics = [];
+
+  for (var v = 0; v < answers.length; v++) {
+    if (!qMap[String(answers[v].questionId).trim()]) {
+      return { success: false, message: "พบรหัสข้อสอบที่ไม่มีอยู่ในคลัง" };
+    }
+  }
   
   for (var j = 0; j < answers.length; j++) {
     var studentAns = answers[j];
