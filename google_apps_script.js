@@ -102,6 +102,12 @@ function getSessionFromToken(token) {
   }
 }
 
+// Run once from the Apps Script editor as the deployment owner to grant Drive access.
+function authorizeDriveAccess() {
+  var folders = DriveApp.getFoldersByName("WebappExam Imports");
+  return folders.hasNext() ? folders.next().getName() : DriveApp.createFolder("WebappExam Imports").getName();
+}
+
 function requireRole(session, roles) {
   return roles.indexOf(String(session.role || "student").toLowerCase()) === -1
     ? { success: false, message: "ไม่มีสิทธิ์ดำเนินการนี้" }
