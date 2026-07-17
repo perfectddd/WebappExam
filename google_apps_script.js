@@ -161,9 +161,10 @@ function handleGetExamSets(ss, session) {
   var name = headerIndex(data.headers, "Name"), status = headerIndex(data.headers, "Status");
   if (id < 0 || name < 0 || status < 0) return { success: false, message: "โครงสร้างตาราง ExamSets ไม่ถูกต้อง" };
   var canManage = session && ["admin", "instructor"].indexOf(String(session.role).toLowerCase()) >= 0;
-  var sets = data.rows.filter(function (r) { return canManage || String(r[status]).toLowerCase() === "published"; }).map(function (r) {
-    return { examSetId: String(r[id]), name: String(r[name]), description: String(r[headerIndex(data.headers, "Description")] || ""), status: String(r[status]), questionLimit: Number(r[headerIndex(data.headers, "QuestionLimit")]) || 0 };
-  });
+  var sets = data.rows.map(function (r) {
+    var examSetId = String(r[id]), questionResult = handleGetExamSetQuestions(ss, examSetId);
+    return { examSetId: examSetId, name: String(r[name]), description: String(r[headerIndex(data.headers, "Description")] || ""), status: String(r[status]), questionLimit: Number(r[headerIndex(data.headers, "QuestionLimit")]) || 0, questionCount: questionResult.success ? questionResult.questions.length : 0 };
+  }).filter(function (set) { return canManage || (String(set.status).toLowerCase() === "published" && set.questionCount > 0); });
   return { success: true, examSets: sets };
 }
 
@@ -188,6 +189,13 @@ function handleCreateExamSet(ss, session, data) {
   if (!name || name.length > 120 || ids.length < 1 || ids.length > 500) return { success: false, message: "ข้อมูลชุดข้อสอบไม่ถูกต้อง" };
   ids = ids.map(String).map(function (x) { return x.trim(); }).filter(Boolean);
   if (new Set(ids).size !== ids.length) return { success: false, message: "มีรหัสข้อสอบซ้ำ" };
+  var questionSheet = ss.getSheetByName("Questions");
+  if (!questionSheet) return { success: false, message: "ไม่พบชีต Questions" };
+  var questionData = readRowsByHeaders(questionSheet), questionIdIdx = headerIndex(questionData.headers, "QuestionID"), validIds = {};
+  if (questionIdIdx < 0) return { success: false, message: "ไม่พบคอลัมน์ QuestionID" };
+  questionData.rows.forEach(function (row) { validIds[String(row[questionIdIdx]).trim()] = true; });
+  var missingIds = ids.filter(function (questionId) { return !validIds[questionId]; });
+  if (missingIds.length) return { success: false, message: "ไม่พบ QuestionID: " + missingIds.slice(0, 10).join(", ") };
   var id = "SET-" + Utilities.getUuid().slice(0, 8).toUpperCase();
   var sets = getOrCreateSheet(ss, "ExamSets", ["ExamSetID", "Name", "Description", "Status", "QuestionLimit", "CreatedBy", "CreatedAt"]);
   var items = getOrCreateSheet(ss, "ExamSetItems", ["ExamSetID", "QuestionID"]);
@@ -200,6 +208,10 @@ function handlePublishExamSet(ss, session, examSetId, status) {
   if (!examSetId || ["draft", "published", "archived"].indexOf(String(status)) < 0) return { success: false, message: "ข้อมูลสถานะไม่ถูกต้อง" };
   var sheet = ss.getSheetByName("ExamSets");
   if (!sheet) return { success: false, message: "ไม่พบชีต ExamSets" };
+  if (String(status) === "published") {
+    var check = handleGetExamSetQuestions(ss, examSetId);
+    if (!check.success || !check.questions.length) return { success: false, message: "ไม่สามารถเผยแพร่ชุดว่างหรือชุดที่มี QuestionID ไม่ถูกต้อง" };
+  }
   var data = readRowsByHeaders(sheet), id = headerIndex(data.headers, "ExamSetID"), st = headerIndex(data.headers, "Status");
   for (var i = 0; i < data.rows.length; i++) if (String(data.rows[i][id]) === String(examSetId)) { sheet.getRange(i + 2, st + 1).setValue(String(status)); return { success: true }; }
   return { success: false, message: "ไม่พบชุดข้อสอบ" };
@@ -261,7 +273,7 @@ function handleApproveImportJob(ss, session, data) {
   for (var i = 0; i < jobData.rows.length; i++) if (String(jobData.rows[i][id]) === jobId) { row = jobData.rows[i]; break; }
   if (!row) return { success: false, message: "ไม่พบเลขงานนำเข้า" };
   if (String(row[status]) === "approved") return { success: false, message: "งานนี้ถูกอนุมัติแล้ว" };
-  var previewText = preview >= 0 ? String(row[preview] || "") : "";
+  var previewText = String(data.previewText || "").trim() || (preview >= 0 ? String(row[preview] || "") : "");
   if (!previewText && fileIdIdx >= 0 && typeIdx >= 0 && String(row[typeIdx]).toLowerCase() === "docx") {
     try { previewText = extractDocxPreview(DriveApp.getFileById(String(row[fileIdIdx])).getBlob()); } catch (err) { return { success: false, message: "อ่านไฟล์ DOCX ไม่สำเร็จ กรุณาอัปโหลดใหม่หลังอนุญาต Drive" }; }
   }
@@ -274,7 +286,8 @@ function handleApproveImportJob(ss, session, data) {
   if (!rows.length) return { success: false, message: "ไม่มีข้อสอบใหม่ให้เพิ่ม" };
   qSheet.getRange(qSheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
   jobs.getRange(jobData.rows.indexOf(row) + 2, status + 1).setValue("approved");
-  return { success: true, imported: rows.length, jobId: jobId };
+  if (preview >= 0) jobs.getRange(jobData.rows.indexOf(row) + 2, preview + 1).setValue(previewText.slice(0, 45000));
+  return { success: true, imported: rows.length, jobId: jobId, questionIds: rows.map(function (r) { return r[1]; }) };
 }
 
 function extractDocxPreview(blob) {
