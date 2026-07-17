@@ -86,6 +86,34 @@
         </div>
       </div>
 
+      <section id="competition-panel" class="card" style="margin-top:24px; text-align:left;">
+        <h3 class="section-title">ชุดข้อสอบการแข่งขัน</h3>
+        <div id="competition-sets-list" class="subject-grid"><div style="color:var(--color-text-muted)">กำลังโหลดชุดข้อสอบ...</div></div>
+      </section>
+
+      <section id="exam-set-panel" class="card" style="display:none; margin-top:24px; text-align:left;">
+        <h3 class="section-title">จัดการชุดข้อสอบแข่งขัน</h3>
+        <div id="exam-set-status" class="settings-box" style="display:none;"></div>
+        <div class="form-group">
+          <label class="form-label" for="exam-set-name">ชื่อชุดข้อสอบ</label>
+          <input id="exam-set-name" class="form-control" maxlength="120" placeholder="เช่น ชุดแข่งขันรอบคัดเลือก">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="exam-set-description">รายละเอียด</label>
+          <textarea id="exam-set-description" class="form-control" maxlength="500" rows="2"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="exam-set-question-ids">รหัสข้อสอบ (คั่นด้วย comma)</label>
+          <textarea id="exam-set-question-ids" class="form-control" rows="2" placeholder="Q-MATH-001,Q-MATH-002"></textarea>
+        </div>
+        <button id="create-exam-set-btn" class="btn btn-primary">สร้างชุดข้อสอบ</button>
+        <hr>
+        <label class="form-label" for="question-file-input">นำเข้า PDF, DOC, DOCX หรือ TXT (ไฟล์จะเข้าคิวตรวจทาน)</label>
+        <input id="question-file-input" class="form-control" type="file" accept=".pdf,.doc,.docx,.txt">
+        <button id="import-question-file-btn" class="btn btn-outline" style="margin-top:8px;">อัปโหลดไฟล์</button>
+        <div id="exam-sets-list" style="margin-top:16px;"></div>
+      </section>
+
       <!-- Leaderboard Section -->
       <div class="card leaderboard-section">
         <h3 class="section-title">🏆 ตารางจัดอันดับผู้ทำคะแนนสูงสุด (Leaderboard - Exam Mode)</h3>

@@ -51,6 +51,16 @@ function doPost(e) {
         response = { success: false, message: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่" };
       } else if (action === "getSubjects") {
         response = handleGetSubjects(ss);
+      } else if (action === "getExamSets") {
+        response = handleGetExamSets(ss, session);
+      } else if (action === "getExamSetQuestions") {
+        response = handleGetExamSetQuestions(ss, postData.examSetId);
+      } else if (action === "createExamSet") {
+        response = requireRole(session, ["instructor", "admin"]) || handleCreateExamSet(ss, session, postData);
+      } else if (action === "publishExamSet") {
+        response = requireRole(session, ["instructor", "admin"]) || handlePublishExamSet(ss, session, postData.examSetId, postData.status);
+      } else if (action === "importQuestionFile") {
+        response = requireRole(session, ["instructor", "admin"]) || handleImportQuestionFile(ss, session, postData);
       } else if (action === "getQuestions") {
         response = handleGetQuestions(ss, postData.subjectCode);
       } else if (action === "getLeaderboard") {
@@ -90,6 +100,116 @@ function getSessionFromToken(token) {
   } catch (err) {
     return null;
   }
+}
+
+function requireRole(session, roles) {
+  return roles.indexOf(String(session.role || "student").toLowerCase()) === -1
+    ? { success: false, message: "ไม่มีสิทธิ์ดำเนินการนี้" }
+    : null;
+}
+
+function getOrCreateSheet(ss, name, headers) {
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name);
+  if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  return sheet;
+}
+
+function readRowsByHeaders(sheet) {
+  var values = sheet.getDataRange().getValues();
+  if (!values || values.length === 0) return { headers: [], rows: [] };
+  return { headers: values[0].map(function (v) { return String(v).trim(); }), rows: values.slice(1) };
+}
+
+function headerIndex(headers, name) { return headers.indexOf(name); }
+
+function handleGetExamSets(ss, session) {
+  var sheet = ss.getSheetByName("ExamSets");
+  if (!sheet) return { success: true, examSets: [] };
+  var data = readRowsByHeaders(sheet), id = headerIndex(data.headers, "ExamSetID");
+  var name = headerIndex(data.headers, "Name"), status = headerIndex(data.headers, "Status");
+  if (id < 0 || name < 0 || status < 0) return { success: false, message: "โครงสร้างตาราง ExamSets ไม่ถูกต้อง" };
+  var canManage = session && ["admin", "instructor"].indexOf(String(session.role).toLowerCase()) >= 0;
+  var sets = data.rows.filter(function (r) { return canManage || String(r[status]).toLowerCase() === "published"; }).map(function (r) {
+    return { examSetId: String(r[id]), name: String(r[name]), description: String(r[headerIndex(data.headers, "Description")] || ""), status: String(r[status]), questionLimit: Number(r[headerIndex(data.headers, "QuestionLimit")]) || 0 };
+  });
+  return { success: true, examSets: sets };
+}
+
+function handleGetExamSetQuestions(ss, examSetId) {
+  if (!examSetId || String(examSetId).length > 100) return { success: false, message: "รหัสชุดข้อสอบไม่ถูกต้อง" };
+  var items = ss.getSheetByName("ExamSetItems"), questions = ss.getSheetByName("Questions");
+  if (!items || !questions) return { success: false, message: "ยังไม่ได้ตั้งค่าชีตชุดข้อสอบ" };
+  var iData = readRowsByHeaders(items), qData = readRowsByHeaders(questions);
+  var setIdx = headerIndex(iData.headers, "ExamSetID"), qidIdx = headerIndex(iData.headers, "QuestionID");
+  if (setIdx < 0 || qidIdx < 0) return { success: false, message: "โครงสร้างตาราง ExamSetItems ไม่ถูกต้อง" };
+  var qid = headerIndex(qData.headers, "QuestionID"), text = headerIndex(qData.headers, "QuestionText");
+  var choices = ["ChoiceA", "ChoiceB", "ChoiceC", "ChoiceD"].map(function (h) { return headerIndex(qData.headers, h); });
+  if (qid < 0 || text < 0 || choices.some(function (x) { return x < 0; })) return { success: false, message: "โครงสร้างตาราง Questions ไม่ถูกต้อง" };
+  var allowed = {};
+  iData.rows.filter(function (r) { return String(r[setIdx]) === String(examSetId); }).forEach(function (r) { allowed[String(r[qidIdx])] = true; });
+  var result = qData.rows.filter(function (r) { return allowed[String(r[qid])]; }).map(function (r) { return { questionId: String(r[qid]), questionText: String(r[text]), choices: choices.map(function (x) { return String(r[x]); }) }; });
+  return { success: true, questions: result };
+}
+
+function handleCreateExamSet(ss, session, data) {
+  var name = String(data.name || "").trim(), ids = Array.isArray(data.questionIds) ? data.questionIds : [];
+  if (!name || name.length > 120 || ids.length < 1 || ids.length > 500) return { success: false, message: "ข้อมูลชุดข้อสอบไม่ถูกต้อง" };
+  ids = ids.map(String).map(function (x) { return x.trim(); }).filter(Boolean);
+  if (new Set(ids).size !== ids.length) return { success: false, message: "มีรหัสข้อสอบซ้ำ" };
+  var id = "SET-" + Utilities.getUuid().slice(0, 8).toUpperCase();
+  var sets = getOrCreateSheet(ss, "ExamSets", ["ExamSetID", "Name", "Description", "Status", "QuestionLimit", "CreatedBy", "CreatedAt"]);
+  var items = getOrCreateSheet(ss, "ExamSetItems", ["ExamSetID", "QuestionID"]);
+  sets.appendRow([id, name, String(data.description || "").slice(0, 500), "draft", ids.length, session.studentId, new Date()]);
+  items.getRange(items.getLastRow() + 1, 1, ids.length, 2).setValues(ids.map(function (q) { return [id, q]; }));
+  return { success: true, examSetId: id };
+}
+
+function handlePublishExamSet(ss, session, examSetId, status) {
+  if (!examSetId || ["draft", "published", "archived"].indexOf(String(status)) < 0) return { success: false, message: "ข้อมูลสถานะไม่ถูกต้อง" };
+  var sheet = ss.getSheetByName("ExamSets");
+  if (!sheet) return { success: false, message: "ไม่พบชีต ExamSets" };
+  var data = readRowsByHeaders(sheet), id = headerIndex(data.headers, "ExamSetID"), st = headerIndex(data.headers, "Status");
+  for (var i = 0; i < data.rows.length; i++) if (String(data.rows[i][id]) === String(examSetId)) { sheet.getRange(i + 2, st + 1).setValue(String(status)); return { success: true }; }
+  return { success: false, message: "ไม่พบชุดข้อสอบ" };
+}
+
+function handleImportQuestionFile(ss, session, data) {
+  var name = String(data.fileName || "").trim(), content = String(data.contentBase64 || "");
+  var ext = name.toLowerCase().split(".").pop();
+  if (!name || ["pdf", "doc", "docx", "txt"].indexOf(ext) < 0 || content.length > 8 * 1024 * 1024) return { success: false, message: "ชนิดหรือขนาดไฟล์ไม่รองรับ" };
+  var bytes;
+  try { bytes = Utilities.base64Decode(content); } catch (err) { return { success: false, message: "ไฟล์ไม่ใช่ Base64 ที่ถูกต้อง" }; }
+  var blob = Utilities.newBlob(bytes, data.mimeType || MimeType.PLAIN_TEXT, name);
+  var folder = DriveApp.getFoldersByName("WebappExam Imports").hasNext() ? DriveApp.getFoldersByName("WebappExam Imports").next() : DriveApp.createFolder("WebappExam Imports");
+  var file = folder.createFile(blob);
+  var jobs = getOrCreateSheet(ss, "ImportJobs", ["JobID", "FileID", "FileName", "Type", "Status", "UploadedBy", "CreatedAt"]);
+  var job = "IMP-" + Utilities.getUuid().slice(0, 8).toUpperCase();
+  var status = ext === "docx" || ext === "txt" ? "ready_for_review" : "manual_review_required";
+  jobs.appendRow([job, file.getId(), name, ext, status, session.studentId, new Date()]);
+  var preview = ext === "docx" ? extractDocxPreview(blob) : "";
+  return { success: true, jobId: job, status: status, preview: preview.slice(0, 4000), message: "อัปโหลดไฟล์แล้ว กรุณาตรวจทานคำตอบก่อนเผยแพร่ข้อสอบ" };
+}
+
+function extractDocxPreview(blob) {
+  try {
+    var files = Utilities.unzip(blob), xmlBlob = null;
+    for (var i = 0; i < files.length; i++) if (files[i].getName() === "word/document.xml") xmlBlob = files[i];
+    if (!xmlBlob) return "";
+    var xml = xmlBlob.getDataAsString("UTF-8");
+    var doc = XmlService.parse(xml), ns = XmlService.getNamespace("http://schemas.openxmlformats.org/wordprocessingml/2006/main");
+    var paragraphs = doc.getRootElement().getChild("body", ns).getChildren("p", ns), out = [];
+    paragraphs.forEach(function (p) {
+      var runs = p.getChildren("r", ns), line = "";
+      runs.forEach(function (r) {
+        var t = r.getChild("t", ns), text = t ? t.getText() : "";
+        var props = r.getChild("rPr", ns), bold = props && props.getChild("b", ns);
+        line += bold ? "[ANSWER:" + text + "]" : text;
+      });
+      if (line.trim()) out.push(line.trim());
+    });
+    return out.join("\n");
+  } catch (err) { return ""; }
 }
 
 // 1. LOGIN HANDLER

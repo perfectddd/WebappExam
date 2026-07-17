@@ -104,6 +104,16 @@ const dashboardSettingsBtn = document.getElementById('dashboard-settings-btn');
 const subjectsContainer = document.getElementById('subjects-container');
 const dashboardStatusBanner = document.getElementById('dashboard-status-banner');
 const leaderboardBody = document.getElementById('leaderboard-body');
+const examSetPanel = document.getElementById('exam-set-panel');
+const examSetStatus = document.getElementById('exam-set-status');
+const examSetName = document.getElementById('exam-set-name');
+const examSetDescription = document.getElementById('exam-set-description');
+const examSetQuestionIds = document.getElementById('exam-set-question-ids');
+const createExamSetBtn = document.getElementById('create-exam-set-btn');
+const questionFileInput = document.getElementById('question-file-input');
+const importQuestionFileBtn = document.getElementById('import-question-file-btn');
+const examSetsList = document.getElementById('exam-sets-list');
+const competitionSetsList = document.getElementById('competition-sets-list');
 
 // Quiz Elements
 const quizSubjectDisplay = document.getElementById('quiz-subject-display');
@@ -259,6 +269,13 @@ function checkSession() {
     if (updateApiWarningState()) {
       loadSubjects();
       loadLeaderboard();
+      loadCompetitionSets();
+      if (studentSession.role === 'admin' || studentSession.role === 'instructor') {
+        examSetPanel.style.display = 'block';
+        loadExamSets();
+      } else {
+        examSetPanel.style.display = 'none';
+      }
     }
   } else {
     showScreen('login');
@@ -820,6 +837,76 @@ async function submitQuiz() {
     }
   }
 }
+
+function showExamSetStatus(message, isError = false) {
+  examSetStatus.textContent = message;
+  examSetStatus.style.display = 'block';
+  examSetStatus.style.color = isError ? 'var(--color-error)' : 'var(--color-success)';
+}
+
+async function loadExamSets() {
+  if (!examSetsList) return;
+  examSetsList.textContent = 'กำลังโหลดชุดข้อสอบ...';
+  try {
+    const res = await postAPI('getExamSets');
+    if (!res.success) throw new Error(res.message || 'โหลดชุดข้อสอบไม่สำเร็จ');
+    examSetsList.innerHTML = res.examSets.length ? res.examSets.map(set => `<div class="settings-box"><strong>${escapeHtml(set.name)}</strong><div>${escapeHtml(set.description || '')}</div><span class="status-badge ${set.status === 'published' ? 'passed' : ''}">${escapeHtml(set.status)}</span>${set.status !== 'published' ? `<button class="btn btn-outline publish-exam-set" data-set-id="${escapeHtml(set.examSetId)}" style="margin-left:8px;padding:4px 8px">เผยแพร่</button>` : ''}</div>`).join('') : '<div style="color:var(--color-text-muted)">ยังไม่มีชุดข้อสอบ</div>';
+    examSetsList.querySelectorAll('.publish-exam-set').forEach(btn => btn.addEventListener('click', async () => {
+      const publish = await postAPI('publishExamSet', { examSetId: btn.dataset.setId, status: 'published' });
+      if (!publish.success) return showExamSetStatus(publish.message || 'เผยแพร่ไม่สำเร็จ', true);
+      showExamSetStatus('เผยแพร่ชุดข้อสอบแล้ว', false); loadExamSets(); loadCompetitionSets();
+    }));
+  } catch (err) {
+    examSetsList.textContent = err.message;
+  }
+}
+
+async function loadCompetitionSets() {
+  if (!competitionSetsList) return;
+  try {
+    const res = await postAPI('getExamSets');
+    if (!res.success) throw new Error(res.message || 'โหลดชุดแข่งขันไม่สำเร็จ');
+    if (!res.examSets.length) { competitionSetsList.innerHTML = '<div style="color:var(--color-text-muted)">ยังไม่มีชุดแข่งขันที่เปิดให้สอบ</div>'; return; }
+    competitionSetsList.innerHTML = res.examSets.map(set => `<div class="subject-card"><div class="subject-code">แข่งขัน</div><div class="subject-name">${escapeHtml(set.name)}</div><p>${escapeHtml(set.description || '')}</p><button class="btn btn-primary competition-start" data-set-id="${escapeHtml(set.examSetId)}" data-set-name="${escapeHtml(set.name)}">เริ่มทำชุดนี้</button></div>`).join('');
+    competitionSetsList.querySelectorAll('.competition-start').forEach(btn => btn.addEventListener('click', () => startExamSet(btn.dataset.setId, btn.dataset.setName)));
+  } catch (err) { competitionSetsList.textContent = err.message; }
+}
+
+async function startExamSet(examSetId, name) {
+  if (!confirm(`เริ่มชุดข้อสอบ ${name} หรือไม่?`)) return;
+  try {
+    const res = await postAPI('getExamSetQuestions', { examSetId });
+    if (!res.success || !Array.isArray(res.questions) || !res.questions.length) throw new Error(res.message || 'ชุดข้อสอบยังไม่มีคำถาม');
+    startQuiz(`SET:${examSetId}`, name, 'Exam', res.questions.length, shuffleArray(res.questions));
+  } catch (err) { alert(err.message); }
+}
+
+if (createExamSetBtn) createExamSetBtn.addEventListener('click', async () => {
+  const ids = examSetQuestionIds.value.split(',').map(v => v.trim()).filter(Boolean);
+  if (!examSetName.value.trim() || !ids.length) return showExamSetStatus('กรุณากรอกชื่อและรหัสข้อสอบ', true);
+  createExamSetBtn.disabled = true;
+  try {
+    const res = await postAPI('createExamSet', { name: examSetName.value.trim(), description: examSetDescription.value.trim(), questionIds: ids });
+    if (!res.success) throw new Error(res.message || 'สร้างชุดข้อสอบไม่สำเร็จ');
+    showExamSetStatus(`สร้างชุดข้อสอบ ${res.examSetId} แล้ว (สถานะร่าง)`, false);
+    examSetName.value = ''; examSetDescription.value = ''; examSetQuestionIds.value = '';
+    loadExamSets();
+  } catch (err) { showExamSetStatus(err.message, true); } finally { createExamSetBtn.disabled = false; }
+});
+
+if (importQuestionFileBtn) importQuestionFileBtn.addEventListener('click', async () => {
+  const file = questionFileInput.files && questionFileInput.files[0];
+  if (!file) return showExamSetStatus('กรุณาเลือกไฟล์ก่อนอัปโหลด', true);
+  if (file.size > 6 * 1024 * 1024) return showExamSetStatus('ไฟล์ต้องมีขนาดไม่เกิน 6 MB', true);
+  importQuestionFileBtn.disabled = true;
+  try {
+    const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1] || ''); reader.onerror = reject; reader.readAsDataURL(file); });
+    const res = await postAPI('importQuestionFile', { fileName: file.name, mimeType: file.type || 'application/octet-stream', contentBase64: base64 });
+    if (!res.success) throw new Error(res.message || 'อัปโหลดไม่สำเร็จ');
+    showExamSetStatus(`อัปโหลดสำเร็จ เลขที่งาน ${res.jobId}: ${res.status}`, false);
+    questionFileInput.value = '';
+  } catch (err) { showExamSetStatus(err.message, true); } finally { importQuestionFileBtn.disabled = false; }
+});
 
 // Render result values and Guided Feedback (Active Learning)
 function renderResults(data) {
