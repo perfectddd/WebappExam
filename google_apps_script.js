@@ -61,6 +61,10 @@ function doPost(e) {
         response = requireRole(session, ["instructor", "admin"]) || handlePublishExamSet(ss, session, postData.examSetId, postData.status);
       } else if (action === "importQuestionFile") {
         response = requireRole(session, ["instructor", "admin"]) || handleImportQuestionFile(ss, session, postData);
+      } else if (action === "getImportJobs") {
+        response = requireRole(session, ["instructor", "admin"]) || handleGetImportJobs(ss);
+      } else if (action === "approveImportJob") {
+        response = requireRole(session, ["instructor", "admin"]) || handleApproveImportJob(ss, session, postData);
       } else if (action === "getQuestions") {
         response = handleGetQuestions(ss, postData.subjectCode);
       } else if (action === "getLeaderboard") {
@@ -119,6 +123,15 @@ function getOrCreateSheet(ss, name, headers) {
   if (!sheet) sheet = ss.insertSheet(name);
   if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   return sheet;
+}
+
+function ensureHeader(sheet, name) {
+  var values = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0].map(String);
+  var idx = values.indexOf(name);
+  if (idx >= 0) return idx;
+  idx = values.length;
+  sheet.getRange(1, idx + 1).setValue(name);
+  return idx;
 }
 
 function readRowsByHeaders(sheet) {
@@ -198,9 +211,54 @@ function handleImportQuestionFile(ss, session, data) {
   var jobs = getOrCreateSheet(ss, "ImportJobs", ["JobID", "FileID", "FileName", "Type", "Status", "UploadedBy", "CreatedAt"]);
   var job = "IMP-" + Utilities.getUuid().slice(0, 8).toUpperCase();
   var status = ext === "docx" || ext === "txt" ? "ready_for_review" : "manual_review_required";
-  jobs.appendRow([job, file.getId(), name, ext, status, session.studentId, new Date()]);
   var preview = ext === "docx" ? extractDocxPreview(blob) : "";
+  jobs.appendRow([job, file.getId(), name, ext, status, session.studentId, new Date()]);
+  jobs.getRange(1, ensureHeader(jobs, "Preview") + 1).setValue("Preview");
+  jobs.getRange(jobs.getLastRow(), ensureHeader(jobs, "Preview") + 1).setValue(preview.slice(0, 45000));
   return { success: true, jobId: job, status: status, preview: preview.slice(0, 4000), message: "อัปโหลดไฟล์แล้ว กรุณาตรวจทานคำตอบก่อนเผยแพร่ข้อสอบ" };
+}
+
+function handleGetImportJobs(ss) {
+  var sheet = ss.getSheetByName("ImportJobs");
+  if (!sheet) return { success: true, jobs: [] };
+  var data = readRowsByHeaders(sheet), id = headerIndex(data.headers, "JobID"), file = headerIndex(data.headers, "FileName"), type = headerIndex(data.headers, "Type"), status = headerIndex(data.headers, "Status"), preview = headerIndex(data.headers, "Preview");
+  if (id < 0 || file < 0 || status < 0) return { success: false, message: "โครงสร้างตาราง ImportJobs ไม่ถูกต้อง" };
+  return { success: true, jobs: data.rows.slice(-20).reverse().map(function (r) { return { jobId: String(r[id]), fileName: String(r[file]), type: type >= 0 ? String(r[type]) : "", status: String(r[status]), preview: preview >= 0 ? String(r[preview] || "").slice(0, 4000) : "" }; }) };
+}
+
+function parseQuestionPreview(preview) {
+  var lines = String(preview || "").split(/\r?\n/).map(function (x) { return x.trim(); }).filter(Boolean), result = [], current = null;
+  lines.forEach(function (line) {
+    var option = line.match(/^[A-D][.)]\s*(.*)$/i);
+    if (/^(Q|Question|ข้อ)\s*[:.)-]/i.test(line) || (!option && !current)) { if (current) result.push(current); current = { text: line.replace(/^(Q|Question|ข้อ)\s*[:.)-]\s*/i, ""), choices: [], answer: "" }; return; }
+    if (!current) return;
+    if (option) { var value = option[1].replace(/^\[ANSWER:(.*)\]$/i, "$1"); current.choices.push(value); if (/\[ANSWER:/i.test(option[1])) current.answer = value; return; }
+    if (/\[ANSWER:/i.test(line)) current.answer = line.replace(/^.*\[ANSWER:\s*(.*?)\].*$/i, "$1");
+  });
+  if (current) result.push(current);
+  return result.filter(function (q) { return q.text && q.choices.length >= 2 && q.answer; });
+}
+
+function handleApproveImportJob(ss, session, data) {
+  var jobId = String(data.jobId || "").trim(), subjectCode = String(data.subjectCode || "").trim();
+  if (!jobId || !subjectCode || subjectCode.length > 100) return { success: false, message: "กรุณาระบุเลขงานและรหัสวิชา" };
+  var jobs = ss.getSheetByName("ImportJobs");
+  if (!jobs) return { success: false, message: "ไม่พบชีต ImportJobs" };
+  var jobData = readRowsByHeaders(jobs), id = headerIndex(jobData.headers, "JobID"), status = headerIndex(jobData.headers, "Status"), preview = headerIndex(jobData.headers, "Preview");
+  var row = null;
+  for (var i = 0; i < jobData.rows.length; i++) if (String(jobData.rows[i][id]) === jobId) { row = jobData.rows[i]; break; }
+  if (!row) return { success: false, message: "ไม่พบเลขงานนำเข้า" };
+  if (String(row[status]) === "approved") return { success: false, message: "งานนี้ถูกอนุมัติแล้ว" };
+  var parsed = parseQuestionPreview(preview >= 0 ? row[preview] : "");
+  if (!parsed.length) return { success: false, message: "ไม่พบรูปแบบข้อสอบที่ระบบอ่านได้ กรุณาตรวจทานและเพิ่มลงชีต Questions ด้วยตนเอง" };
+  var qSheet = getOrCreateSheet(ss, "Questions", ["SubjectCode", "QuestionID", "QuestionText", "ChoiceA", "ChoiceB", "ChoiceC", "ChoiceD", "CorrectAnswer", "Topic", "Rationale"]);
+  var qData = readRowsByHeaders(qSheet), qid = headerIndex(qData.headers, "QuestionID"), existing = {};
+  qData.rows.forEach(function (r) { if (qid >= 0) existing[String(r[qid])] = true; });
+  var rows = parsed.map(function (q, n) { var newId = jobId + "-Q" + (n + 1); return [subjectCode, newId, q.text, q.choices[0] || "", q.choices[1] || "", q.choices[2] || "", q.choices[3] || "", q.answer, "นำเข้าจากไฟล์", "ตรวจทานจากไฟล์ " + jobId]; }).filter(function (r) { return !existing[String(r[1])]; });
+  if (!rows.length) return { success: false, message: "ไม่มีข้อสอบใหม่ให้เพิ่ม" };
+  qSheet.getRange(qSheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  jobs.getRange(jobData.rows.indexOf(row) + 2, status + 1).setValue("approved");
+  return { success: true, imported: rows.length, jobId: jobId };
 }
 
 function extractDocxPreview(blob) {

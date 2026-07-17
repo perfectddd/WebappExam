@@ -8,7 +8,7 @@
 // --- CONFIGURATION ---
 // กำหนด URL ของ Google Apps Script Web App ของคุณที่นี่ เพื่อใช้เป็นค่าเริ่มต้นถาวรสำหรับนักเรียนทุกคน
 // เช่น: const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxxx/exec';
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbwQEPgN837Mwwhzj-udr8NAd2SPu-7tRrN1o4JcdhI5pickDCAT_Bc3bZHVVvKUk331Dg/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzHiMJJi5PbjkUoqkpGaibQqLVXQwMAG9ruKQ1xWsta6kzxsBvaMYDMBDJd_k2iE6r2mw/exec';
 
 // ดึงค่า API URL จาก Query Parameter ใน URL (ถ้ามี) เช่น index.html?api=https://...
 const urlParams = new URLSearchParams(window.location.search);
@@ -113,6 +113,7 @@ const createExamSetBtn = document.getElementById('create-exam-set-btn');
 const questionFileInput = document.getElementById('question-file-input');
 const importQuestionFileBtn = document.getElementById('import-question-file-btn');
 const examSetsList = document.getElementById('exam-sets-list');
+const importJobsList = document.getElementById('import-jobs-list');
 const competitionSetsList = document.getElementById('competition-sets-list');
 
 // Quiz Elements
@@ -273,6 +274,7 @@ function checkSession() {
       if (studentSession.role === 'admin' || studentSession.role === 'instructor') {
         examSetPanel.style.display = 'block';
         loadExamSets();
+        loadImportJobs();
       } else {
         examSetPanel.style.display = 'none';
       }
@@ -861,6 +863,21 @@ async function loadExamSets() {
   }
 }
 
+async function loadImportJobs() {
+  if (!importJobsList) return;
+  try {
+    const res = await postAPI('getImportJobs');
+    if (!res.success) throw new Error(res.message || 'โหลดงานนำเข้าไม่สำเร็จ');
+    importJobsList.innerHTML = res.jobs.length ? res.jobs.map(job => `<div class="settings-box" style="margin-top:8px"><strong>${escapeHtml(job.jobId)}</strong> - ${escapeHtml(job.fileName)} <span class="status-badge">${escapeHtml(job.status)}</span>${job.status !== 'approved' && job.preview ? `<textarea class="form-control import-preview" data-job-id="${escapeHtml(job.jobId)}" rows="4" readonly>${escapeHtml(job.preview)}</textarea><div style="display:flex;gap:8px;margin-top:6px"><input class="form-control import-subject" data-job-id="${escapeHtml(job.jobId)}" placeholder="รหัสวิชา เช่น MATH01"><button class="btn btn-primary approve-import" data-job-id="${escapeHtml(job.jobId)}">อนุมัติเข้า Questions</button></div>` : ''}</div>`).join('') : '<div style="color:var(--color-text-muted)">ยังไม่มีงานนำเข้า</div>';
+    importJobsList.querySelectorAll('.approve-import').forEach(btn => btn.addEventListener('click', async () => {
+      const subject = importJobsList.querySelector(`.import-subject[data-job-id="${CSS.escape(btn.dataset.jobId)}"]`);
+      if (!subject || !subject.value.trim()) return showExamSetStatus('กรุณาระบุรหัสวิชา', true);
+      btn.disabled = true;
+      try { const approved = await postAPI('approveImportJob', { jobId: btn.dataset.jobId, subjectCode: subject.value.trim() }); if (!approved.success) throw new Error(approved.message || 'อนุมัติไม่สำเร็จ'); showExamSetStatus(`นำเข้า ${approved.imported} ข้อแล้ว`, false); loadImportJobs(); } catch (err) { showExamSetStatus(err.message, true); } finally { btn.disabled = false; }
+    }));
+  } catch (err) { importJobsList.textContent = err.message; }
+}
+
 async function loadCompetitionSets() {
   if (!competitionSetsList) return;
   try {
@@ -905,6 +922,7 @@ if (importQuestionFileBtn) importQuestionFileBtn.addEventListener('click', async
     if (!res.success) throw new Error(res.message || 'อัปโหลดไม่สำเร็จ');
     showExamSetStatus(`อัปโหลดสำเร็จ เลขที่งาน ${res.jobId}: ${res.status}`, false);
     questionFileInput.value = '';
+    loadImportJobs();
   } catch (err) { showExamSetStatus(err.message, true); } finally { importQuestionFileBtn.disabled = false; }
 });
 
