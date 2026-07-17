@@ -860,7 +860,7 @@ async function loadExamSets() {
   try {
     const res = await postAPI('getExamSets');
     if (!res.success) throw new Error(res.message || 'โหลดชุดข้อสอบไม่สำเร็จ');
-    examSetsList.innerHTML = res.examSets.length ? res.examSets.map(set => `<div class="settings-box"><strong>${escapeHtml(set.name)}</strong><div>${escapeHtml(set.description || '')}</div><span class="status-badge ${set.status === 'published' ? 'passed' : ''}">${escapeHtml(set.status)}</span>${set.status !== 'published' ? `<button class="btn btn-outline publish-exam-set" data-set-id="${escapeHtml(set.examSetId)}" style="margin-left:8px;padding:4px 8px">เผยแพร่</button>` : ''}</div>`).join('') : '<div style="color:var(--color-text-muted)">ยังไม่มีชุดข้อสอบ</div>';
+    examSetsList.innerHTML = res.examSets.length ? res.examSets.map(set => `<div class="settings-box"><strong>${escapeHtml(set.name)}</strong><div>${escapeHtml(set.description || '')}</div><div>จำนวนคำถามที่ใช้งานได้: ${Number(set.questionCount) || 0}</div><span class="status-badge ${set.status === 'published' && set.questionCount > 0 ? 'passed' : ''}">${escapeHtml(set.status)}</span>${set.status !== 'published' ? `<button class="btn btn-outline publish-exam-set" data-set-id="${escapeHtml(set.examSetId)}" style="margin-left:8px;padding:4px 8px">เผยแพร่</button>` : ''}</div>`).join('') : '<div style="color:var(--color-text-muted)">ยังไม่มีชุดข้อสอบ</div>';
     examSetsList.querySelectorAll('.publish-exam-set').forEach(btn => btn.addEventListener('click', async () => {
       const publish = await postAPI('publishExamSet', { examSetId: btn.dataset.setId, status: 'published' });
       if (!publish.success) return showExamSetStatus(publish.message || 'เผยแพร่ไม่สำเร็จ', true);
@@ -876,12 +876,14 @@ async function loadImportJobs() {
   try {
     const res = await postAPI('getImportJobs');
     if (!res.success) throw new Error(res.message || 'โหลดงานนำเข้าไม่สำเร็จ');
-    importJobsList.innerHTML = res.jobs.length ? res.jobs.map(job => `<div class="settings-box" style="margin-top:8px"><strong>${escapeHtml(job.jobId)}</strong> - ${escapeHtml(job.fileName)} <span class="status-badge">${escapeHtml(job.status)}</span>${job.status !== 'approved' && job.preview ? `<textarea class="form-control import-preview" data-job-id="${escapeHtml(job.jobId)}" rows="4" readonly>${escapeHtml(job.preview)}</textarea><div style="display:flex;gap:8px;margin-top:6px"><input class="form-control import-subject" data-job-id="${escapeHtml(job.jobId)}" placeholder="รหัสวิชา เช่น MATH01"><button class="btn btn-primary approve-import" data-job-id="${escapeHtml(job.jobId)}">อนุมัติเข้า Questions</button></div>` : ''}</div>`).join('') : '<div style="color:var(--color-text-muted)">ยังไม่มีงานนำเข้า</div>';
+    const manualTemplate = 'Q: คำถาม\nA. ตัวเลือกที่ 1\nB. [ANSWER:ตัวเลือกที่ถูกต้อง]\nC. ตัวเลือกที่ 3\nD. ตัวเลือกที่ 4';
+    importJobsList.innerHTML = res.jobs.length ? res.jobs.map(job => `<div class="settings-box" style="margin-top:8px"><strong>${escapeHtml(job.jobId)}</strong> - ${escapeHtml(job.fileName)} <span class="status-badge">${escapeHtml(job.status)}</span>${job.status !== 'approved' ? `<p style="font-size:.85rem">ตรวจและแก้ข้อความด้านล่างก่อนอนุมัติ สำหรับไฟล์ DOC/PDF ให้วางข้อความตามรูปแบบตัวอย่าง</p><textarea class="form-control import-preview" data-job-id="${escapeHtml(job.jobId)}" rows="8">${escapeHtml(job.preview || manualTemplate)}</textarea><div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap"><input class="form-control import-subject" data-job-id="${escapeHtml(job.jobId)}" placeholder="รหัสวิชา เช่น MATH01"><button class="btn btn-primary approve-import" data-job-id="${escapeHtml(job.jobId)}">อนุมัติเข้า Questions</button></div>` : ''}</div>`).join('') : '<div style="color:var(--color-text-muted)">ยังไม่มีงานนำเข้า</div>';
     importJobsList.querySelectorAll('.approve-import').forEach(btn => btn.addEventListener('click', async () => {
       const subject = importJobsList.querySelector(`.import-subject[data-job-id="${CSS.escape(btn.dataset.jobId)}"]`);
+      const preview = importJobsList.querySelector(`.import-preview[data-job-id="${CSS.escape(btn.dataset.jobId)}"]`);
       if (!subject || !subject.value.trim()) return showExamSetStatus('กรุณาระบุรหัสวิชา', true);
       btn.disabled = true;
-      try { const approved = await postAPI('approveImportJob', { jobId: btn.dataset.jobId, subjectCode: subject.value.trim() }); if (!approved.success) throw new Error(approved.message || 'อนุมัติไม่สำเร็จ'); showExamSetStatus(`นำเข้า ${approved.imported} ข้อแล้ว`, false); loadImportJobs(); } catch (err) { showExamSetStatus(err.message, true); } finally { btn.disabled = false; }
+      try { const approved = await postAPI('approveImportJob', { jobId: btn.dataset.jobId, subjectCode: subject.value.trim(), previewText: preview ? preview.value : '' }); if (!approved.success) throw new Error(approved.message || 'อนุมัติไม่สำเร็จ'); showExamSetStatus(`นำเข้า ${approved.imported} ข้อแล้ว รหัสข้อสอบถูกเติมในช่องสร้างชุดข้อสอบ`, false); if (Array.isArray(approved.questionIds)) examSetQuestionIds.value = approved.questionIds.join(','); loadImportJobs(); } catch (err) { showExamSetStatus(err.message, true); } finally { btn.disabled = false; }
     }));
   } catch (err) { importJobsList.textContent = err.message; }
 }
@@ -891,8 +893,9 @@ async function loadCompetitionSets() {
   try {
     const res = await postAPI('getExamSets');
     if (!res.success) throw new Error(res.message || 'โหลดชุดแข่งขันไม่สำเร็จ');
-    if (!res.examSets.length) { competitionSetsList.innerHTML = '<div style="color:var(--color-text-muted)">ยังไม่มีชุดแข่งขันที่เปิดให้สอบ</div>'; return; }
-    competitionSetsList.innerHTML = res.examSets.map(set => `<div class="subject-card"><div class="subject-code">แข่งขัน</div><div class="subject-name">${escapeHtml(set.name)}</div><p>${escapeHtml(set.description || '')}</p><button class="btn btn-primary competition-start" data-set-id="${escapeHtml(set.examSetId)}" data-set-name="${escapeHtml(set.name)}">เริ่มทำชุดนี้</button></div>`).join('');
+    const availableSets = res.examSets.filter(set => set.status === 'published' && Number(set.questionCount) > 0);
+    if (!availableSets.length) { competitionSetsList.innerHTML = '<div style="color:var(--color-text-muted)">ยังไม่มีชุดแข่งขันที่มีคำถามพร้อมใช้งาน</div>'; return; }
+    competitionSetsList.innerHTML = availableSets.map(set => `<div class="subject-card"><div class="subject-code">แข่งขัน</div><div class="subject-name">${escapeHtml(set.name)}</div><p>${escapeHtml(set.description || '')}</p><button class="btn btn-primary competition-start" data-set-id="${escapeHtml(set.examSetId)}" data-set-name="${escapeHtml(set.name)}">เริ่มทำชุดนี้</button></div>`).join('');
     competitionSetsList.querySelectorAll('.competition-start').forEach(btn => btn.addEventListener('click', () => startExamSet(btn.dataset.setId, btn.dataset.setName)));
   } catch (err) { competitionSetsList.textContent = err.message; }
 }

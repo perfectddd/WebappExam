@@ -1,6 +1,6 @@
 // The deployment URL is public configuration, not a credential. Keep it pinned
 // here so a stale Vercel environment variable cannot route login to old code.
-const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx9OgXHKMHA64v2m3B82rUf-kGG78eAClpg0dAnXkl9mP6xe_oe-8c_TWtuWbyyxxKqig/exec';
+const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxPnZ-qK9azFERoGpbsT1pOPA6GHbyKPOunD3sE0-maREhKkNYCecY-pbaL22Jd8VSrgw/exec';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
