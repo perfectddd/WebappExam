@@ -8,13 +8,13 @@
 // --- CONFIGURATION ---
 // กำหนด URL ของ Google Apps Script Web App ของคุณที่นี่ เพื่อใช้เป็นค่าเริ่มต้นถาวรสำหรับนักเรียนทุกคน
 // เช่น: const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxxx/exec';
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbx9OgXHKMHA64v2m3B82rUf-kGG78eAClpg0dAnXkl9mP6xe_oe-8c_TWtuWbyyxxKqig/exec';
+const DEFAULT_API_URL = '/api/quiz';
 
 // ดึงค่า API URL จาก Query Parameter ใน URL (ถ้ามี) เช่น index.html?api=https://...
 const urlParams = new URLSearchParams(window.location.search);
 const queryApiUrl = urlParams.get('api');
 function isAllowedApiUrl(value) {
-  if (value === 'DEMO') return true;
+  if (value === 'DEMO' || value === '/api/quiz') return true;
   try {
     const parsed = new URL(value);
     return parsed.protocol === 'https:' && parsed.hostname === 'script.google.com' && parsed.pathname.startsWith('/macros/s/');
@@ -29,7 +29,9 @@ if (queryApiUrl && isAllowedApiUrl(queryApiUrl)) {
 
 // --- APPLICATION STATE ---
 const storedApiUrl = localStorage.getItem('webapp_exam_api_url');
-let apiURL = isAllowedApiUrl(storedApiUrl) ? storedApiUrl : DEFAULT_API_URL;
+// Use the same-origin Vercel proxy by default. An old direct Apps Script URL
+// is intentionally ignored because browsers can turn its POST redirect into GET.
+let apiURL = storedApiUrl === 'DEMO' || storedApiUrl === '/api/quiz' ? storedApiUrl : DEFAULT_API_URL;
 function readJsonStorage(key, fallback) {
   try {
     const value = localStorage.getItem(key);
