@@ -244,12 +244,16 @@ function handleApproveImportJob(ss, session, data) {
   if (!jobId || !subjectCode || subjectCode.length > 100) return { success: false, message: "กรุณาระบุเลขงานและรหัสวิชา" };
   var jobs = ss.getSheetByName("ImportJobs");
   if (!jobs) return { success: false, message: "ไม่พบชีต ImportJobs" };
-  var jobData = readRowsByHeaders(jobs), id = headerIndex(jobData.headers, "JobID"), status = headerIndex(jobData.headers, "Status"), preview = headerIndex(jobData.headers, "Preview");
+  var jobData = readRowsByHeaders(jobs), id = headerIndex(jobData.headers, "JobID"), status = headerIndex(jobData.headers, "Status"), preview = headerIndex(jobData.headers, "Preview"), fileIdIdx = headerIndex(jobData.headers, "FileID"), typeIdx = headerIndex(jobData.headers, "Type");
   var row = null;
   for (var i = 0; i < jobData.rows.length; i++) if (String(jobData.rows[i][id]) === jobId) { row = jobData.rows[i]; break; }
   if (!row) return { success: false, message: "ไม่พบเลขงานนำเข้า" };
   if (String(row[status]) === "approved") return { success: false, message: "งานนี้ถูกอนุมัติแล้ว" };
-  var parsed = parseQuestionPreview(preview >= 0 ? row[preview] : "");
+  var previewText = preview >= 0 ? String(row[preview] || "") : "";
+  if (!previewText && fileIdIdx >= 0 && typeIdx >= 0 && String(row[typeIdx]).toLowerCase() === "docx") {
+    try { previewText = extractDocxPreview(DriveApp.getFileById(String(row[fileIdIdx])).getBlob()); } catch (err) { return { success: false, message: "อ่านไฟล์ DOCX ไม่สำเร็จ กรุณาอัปโหลดใหม่หลังอนุญาต Drive" }; }
+  }
+  var parsed = parseQuestionPreview(previewText);
   if (!parsed.length) return { success: false, message: "ไม่พบรูปแบบข้อสอบที่ระบบอ่านได้ กรุณาตรวจทานและเพิ่มลงชีต Questions ด้วยตนเอง" };
   var qSheet = getOrCreateSheet(ss, "Questions", ["SubjectCode", "QuestionID", "QuestionText", "ChoiceA", "ChoiceB", "ChoiceC", "ChoiceD", "CorrectAnswer", "Topic", "Rationale"]);
   var qData = readRowsByHeaders(qSheet), qid = headerIndex(qData.headers, "QuestionID"), existing = {};
