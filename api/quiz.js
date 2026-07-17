@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     return res.status(upstream.status >= 200 && upstream.status < 300 ? 200 : 502).send(text);
   } catch (error) {
     console.error('Apps Script proxy failed:', error);
-    return res.status(502).json({ success: false, message: 'เชื่อมต่อ Apps Script ไม่สำเร็จ', code: 'UPSTREAM_FETCH_FAILED' });
+    return res.status(502).json({ success: false, message: 'เชื่อมต่อ Apps Script ไม่สำเร็จ', code: 'UPSTREAM_FETCH_FAILED', detail: String(error && error.message || 'unknown').slice(0, 160) });
   }
 }
 
