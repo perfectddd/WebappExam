@@ -8,7 +8,7 @@
 // --- CONFIGURATION ---
 // กำหนด URL ของ Google Apps Script Web App ของคุณที่นี่ เพื่อใช้เป็นค่าเริ่มต้นถาวรสำหรับนักเรียนทุกคน
 // เช่น: const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxxx/exec';
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyBN7FNx7HpqDITZcpbD69hKKAt5zbjQwG1xWPxOJl5ZgtLgqwi7ZoWiEWYeeA29AbDYA/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbwv3EO1LDTqg6JtDWSbc719E2eee4VSFBkaGEevAlSjdFRFMqyweFxi072oCmwtJpTpRQ/exec';
 
 // ดึงค่า API URL จาก Query Parameter ใน URL (ถ้ามี) เช่น index.html?api=https://...
 const urlParams = new URLSearchParams(window.location.search);
