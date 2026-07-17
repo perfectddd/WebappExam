@@ -181,7 +181,13 @@ function handleImportQuestionFile(ss, session, data) {
   var bytes;
   try { bytes = Utilities.base64Decode(content); } catch (err) { return { success: false, message: "ไฟล์ไม่ใช่ Base64 ที่ถูกต้อง" }; }
   var blob = Utilities.newBlob(bytes, data.mimeType || MimeType.PLAIN_TEXT, name);
-  var folder = DriveApp.getFoldersByName("WebappExam Imports").hasNext() ? DriveApp.getFoldersByName("WebappExam Imports").next() : DriveApp.createFolder("WebappExam Imports");
+  var folder;
+  try {
+    var folders = DriveApp.getFoldersByName("WebappExam Imports");
+    folder = folders.hasNext() ? folders.next() : DriveApp.createFolder("WebappExam Imports");
+  } catch (driveErr) {
+    return { success: false, message: "ยังไม่ได้อนุญาต Google Drive ให้ Apps Script กรุณาเปิดโปรเจกต์ Apps Script แล้วกด Review permissions/Allow จากนั้น deploy ใหม่" };
+  }
   var file = folder.createFile(blob);
   var jobs = getOrCreateSheet(ss, "ImportJobs", ["JobID", "FileID", "FileName", "Type", "Status", "UploadedBy", "CreatedAt"]);
   var job = "IMP-" + Utilities.getUuid().slice(0, 8).toUpperCase();
