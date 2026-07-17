@@ -8,7 +8,7 @@
 // --- CONFIGURATION ---
 // กำหนด URL ของ Google Apps Script Web App ของคุณที่นี่ เพื่อใช้เป็นค่าเริ่มต้นถาวรสำหรับนักเรียนทุกคน
 // เช่น: const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxxx/exec';
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzjALDVIXBmkaXpgzOYaPSIHkTW8fPMx4XtMHKpLzqcWTAfWYCfCbZ1Daqtyoat12JLsA/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbx9OgXHKMHA64v2m3B82rUf-kGG78eAClpg0dAnXkl9mP6xe_oe-8c_TWtuWbyyxxKqig/exec';
 
 // ดึงค่า API URL จาก Query Parameter ใน URL (ถ้ามี) เช่น index.html?api=https://...
 const urlParams = new URLSearchParams(window.location.search);
@@ -196,6 +196,12 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function formatDisplayValue(value) {
+  const text = String(value ?? '');
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/);
+  return iso ? `${iso[3]}/${iso[2]}/${iso[1]}` : text;
 }
 
 // Switch screens with smooth animation
@@ -665,7 +671,7 @@ function renderQuestion() {
     choiceItem.innerHTML = `
       <input type="radio" name="quiz-choice" value="${escapeHtml(choice)}" ${savedAnswer === choice ? 'checked' : ''}>
       <span class="choice-custom-radio"></span>
-      <span class="choice-text"><strong>${labelChar}</strong> ${escapeHtml(choice)}</span>
+      <span class="choice-text"><strong>${labelChar}</strong> ${escapeHtml(formatDisplayValue(choice))}</span>
     `;
 
     // Bind click trigger for visually selecting card border

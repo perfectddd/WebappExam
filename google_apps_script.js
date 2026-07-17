@@ -142,6 +142,18 @@ function readRowsByHeaders(sheet) {
 
 function headerIndex(headers, name) { return headers.indexOf(name); }
 
+// Google Sheets returns date cells as JavaScript Date objects. Serialize them
+// explicitly so the browser never displays an ISO timestamp as an answer.
+function serializeSheetValue(value) {
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+    var tz = Session.getScriptTimeZone() || "Asia/Bangkok";
+    // Keep the year stored in the sheet unchanged. This supports both
+    // Gregorian and Buddhist-year data without silently shifting the date.
+    return Utilities.formatDate(value, tz, "dd/MM/yyyy");
+  }
+  return value === null || value === undefined ? "" : String(value);
+}
+
 function handleGetExamSets(ss, session) {
   var sheet = ss.getSheetByName("ExamSets");
   if (!sheet) return { success: true, examSets: [] };
@@ -167,7 +179,7 @@ function handleGetExamSetQuestions(ss, examSetId) {
   if (qid < 0 || text < 0 || choices.some(function (x) { return x < 0; })) return { success: false, message: "โครงสร้างตาราง Questions ไม่ถูกต้อง" };
   var allowed = {};
   iData.rows.filter(function (r) { return String(r[setIdx]) === String(examSetId); }).forEach(function (r) { allowed[String(r[qidIdx])] = true; });
-  var result = qData.rows.filter(function (r) { return allowed[String(r[qid])]; }).map(function (r) { return { questionId: String(r[qid]), questionText: String(r[text]), choices: choices.map(function (x) { return String(r[x]); }) }; });
+  var result = qData.rows.filter(function (r) { return allowed[String(r[qid])]; }).map(function (r) { return { questionId: serializeSheetValue(r[qid]), questionText: serializeSheetValue(r[text]), choices: choices.map(function (x) { return serializeSheetValue(r[x]); }) }; });
   return { success: true, questions: result };
 }
 
@@ -396,13 +408,13 @@ function handleGetQuestions(ss, subjectCode) {
     var row = data[i];
     if (String(row[subCodeIdx]).trim() === String(subjectCode).trim()) {
       questions.push({
-        questionId: row[idIdx],
-        questionText: row[textIdx],
+        questionId: serializeSheetValue(row[idIdx]),
+        questionText: serializeSheetValue(row[textIdx]),
         choices: [
-          row[choiceAIdx],
-          row[choiceBIdx],
-          row[choiceCIdx],
-          row[choiceDIdx]
+          serializeSheetValue(row[choiceAIdx]),
+          serializeSheetValue(row[choiceBIdx]),
+          serializeSheetValue(row[choiceCIdx]),
+          serializeSheetValue(row[choiceDIdx])
         ]
       });
     }
@@ -454,9 +466,9 @@ function handleSubmitQuiz(ss, studentId, name, subjectCode, mode, durationSecond
     var row = qData[i];
     var qId = String(row[qIdIdx]).trim();
     qMap[qId] = {
-      text: row[qTextIdx],
-      choices: [row[qChoiceAIdx], row[qChoiceBIdx], row[qChoiceCIdx], row[qChoiceDIdx]],
-      correctAnswer: String(row[qAnsIdx]).trim(),
+      text: serializeSheetValue(row[qTextIdx]),
+      choices: [serializeSheetValue(row[qChoiceAIdx]), serializeSheetValue(row[qChoiceBIdx]), serializeSheetValue(row[qChoiceCIdx]), serializeSheetValue(row[qChoiceDIdx])],
+      correctAnswer: serializeSheetValue(row[qAnsIdx]).trim(),
       topic: qTopicIdx !== -1 ? row[qTopicIdx] : "ทั่วไป",
       rationale: qRationaleIdx !== -1 ? row[qRationaleIdx] : "ไม่มีคำอธิบายเพิ่มเติม"
     };
