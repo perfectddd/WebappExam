@@ -1,4 +1,6 @@
-const GOOGLE_APPS_SCRIPT_URL = process.env.GOOGLE_APPS_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbx9OgXHKMHA64v2m3B82rUf-kGG78eAClpg0dAnXkl9mP6xe_oe-8c_TWtuWbyyxxKqig/exec';
+// The deployment URL is public configuration, not a credential. Keep it pinned
+// here so a stale Vercel environment variable cannot route login to old code.
+const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx9OgXHKMHA64v2m3B82rUf-kGG78eAClpg0dAnXkl9mP6xe_oe-8c_TWtuWbyyxxKqig/exec';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -22,6 +24,7 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 'no-store');
     return res.status(upstream.ok ? 200 : 502).send(text);
   } catch (error) {
-    return res.status(502).json({ success: false, message: 'เชื่อมต่อ Apps Script ไม่สำเร็จ' });
+    console.error('Apps Script proxy failed:', error);
+    return res.status(502).json({ success: false, message: 'เชื่อมต่อ Apps Script ไม่สำเร็จ', code: 'UPSTREAM_FETCH_FAILED' });
   }
 }
