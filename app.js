@@ -1003,19 +1003,27 @@ function renderResults(data) {
     data.results.forEach((qResult, index) => {
       const qCard = document.createElement('div');
       const isCorrect = qResult.correct;
+      // Use the exact question snapshot shown during this attempt. The server
+      // remains authoritative for grading, topic, and rationale.
+      const attemptedQuestion = quizState.questions.find(
+        origQ => String(origQ.questionId) === String(qResult.questionId)
+      );
+      const reviewQuestionText = attemptedQuestion ? attemptedQuestion.questionText : qResult.questionText;
+      const reviewChoices = attemptedQuestion && Array.isArray(attemptedQuestion.choices)
+        ? attemptedQuestion.choices
+        : qResult.choices;
       qCard.className = `review-question-card ${isCorrect ? 'correct' : 'incorrect'}`;
 
       if (!isCorrect) {
         // Collect incorrect question structure for re-attempt
-        const matchedQ = quizState.questions.find(origQ => origQ.questionId === qResult.questionId);
-        if (matchedQ) {
-          wrongQuestionsToRetry.push(matchedQ);
+        if (attemptedQuestion) {
+          wrongQuestionsToRetry.push(attemptedQuestion);
         }
       }
 
       // Render labels for choices
       let choicesHtml = '';
-      qResult.choices.forEach((choice, cIdx) => {
+      reviewChoices.forEach((choice, cIdx) => {
         const labelChar = ['ก.', 'ข.', 'ค.', 'ง.'][cIdx] || '';
         let statusClass = '';
 
@@ -1035,7 +1043,7 @@ function renderResults(data) {
           <span class="review-indicator">${isCorrect ? '🟢 ถูกต้อง' : '🔴 ตอบผิด'}</span>
           <span>หัวข้อ: ${escapeHtml(qResult.topic)}</span>
         </div>
-        <div class="review-question-text">ข้อที่ ${index + 1}: ${escapeHtml(qResult.questionText)}</div>
+        <div class="review-question-text">ข้อที่ ${index + 1}: ${escapeHtml(reviewQuestionText)}</div>
         <div class="review-choices">
           ${choicesHtml}
         </div>
