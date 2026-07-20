@@ -9,6 +9,7 @@
 // กำหนด URL ของ Google Apps Script Web App ของคุณที่นี่ เพื่อใช้เป็นค่าเริ่มต้นถาวรสำหรับนักเรียนทุกคน
 // เช่น: const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxxx/exec';
 const DEFAULT_API_URL = '/api/quiz';
+const QUESTION_IMPORT_ENABLED = false;
 
 // ดึงค่า API URL จาก Query Parameter ใน URL (ถ้ามี) เช่น index.html?api=https://...
 const urlParams = new URLSearchParams(window.location.search);
@@ -282,7 +283,7 @@ function checkSession() {
       if (studentSession.role === 'admin' || studentSession.role === 'instructor') {
         examSetPanel.style.display = 'block';
         loadExamSets();
-        loadImportJobs();
+        if (QUESTION_IMPORT_ENABLED) loadImportJobs();
       } else {
         examSetPanel.style.display = 'none';
       }
@@ -922,7 +923,7 @@ if (createExamSetBtn) createExamSetBtn.addEventListener('click', async () => {
   } catch (err) { showExamSetStatus(err.message, true); } finally { createExamSetBtn.disabled = false; }
 });
 
-if (importQuestionFileBtn) importQuestionFileBtn.addEventListener('click', async () => {
+if (QUESTION_IMPORT_ENABLED && importQuestionFileBtn) importQuestionFileBtn.addEventListener('click', async () => {
   const file = questionFileInput.files && questionFileInput.files[0];
   if (!file) return showExamSetStatus('กรุณาเลือกไฟล์ก่อนอัปโหลด', true);
   if (file.size > 6 * 1024 * 1024) return showExamSetStatus('ไฟล์ต้องมีขนาดไม่เกิน 6 MB', true);
