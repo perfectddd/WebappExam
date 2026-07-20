@@ -57,7 +57,7 @@ let timerInterval = null;
 let submitInProgress = false;
 let retryQuestions = null;
 
-if (studentSession && apiURL !== 'DEMO' && !studentSession.sessionToken) {
+if (studentSession && apiURL !== 'DEMO' && (!studentSession.sessionToken || !String(studentSession.sessionToken).includes('.'))) {
   localStorage.removeItem('webapp_exam_session');
   studentSession = null;
 }
