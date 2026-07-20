@@ -810,22 +810,11 @@ async function submitQuiz() {
   quizNextBtn.textContent = 'กำลังส่ง...';
 
   try {
-    const postBody = {
-      action: 'submitQuiz',
-      studentId: studentSession.studentId,
-      name: studentSession.name,
+    const res = await postAPI('submitQuiz', {
       subjectCode: quizState.subjectCode,
       mode: quizState.mode,
       durationSeconds: durationSecondsTaken,
       answers: submitAnswers
-    };
-
-    const res = await callAPI(apiURL, {
-      method: 'POST',
-      body: JSON.stringify(postBody),
-      headers: {
-        'Content-Type': 'text/plain' // Workaround for Apps Script CORS preflight
-      }
     });
 
     if (res.success) {
