@@ -14,6 +14,9 @@
  * 9. Click Deploy, authorize permissions, and copy the Web App URL.
  */
 
+// Temporary feature flag. Keep false until question import is re-enabled.
+var QUESTION_IMPORT_ENABLED = false;
+
 // Handle CORS and preflight requests
 function doGet(e) {
   var response = { success: false, message: "รองรับเฉพาะ POST API เพื่อป้องกันข้อมูลรับรองใน URL" };
@@ -59,12 +62,16 @@ function doPost(e) {
         response = requireRole(session, ["instructor", "admin"]) || handleCreateExamSet(ss, session, postData);
       } else if (action === "publishExamSet") {
         response = requireRole(session, ["instructor", "admin"]) || handlePublishExamSet(ss, session, postData.examSetId, postData.status);
-      } else if (action === "importQuestionFile") {
-        response = requireRole(session, ["instructor", "admin"]) || handleImportQuestionFile(ss, session, postData);
-      } else if (action === "getImportJobs") {
-        response = requireRole(session, ["instructor", "admin"]) || handleGetImportJobs(ss);
-      } else if (action === "approveImportJob") {
-        response = requireRole(session, ["instructor", "admin"]) || handleApproveImportJob(ss, session, postData);
+      } else if (action === "importQuestionFile" || action === "getImportJobs" || action === "approveImportJob") {
+        if (!QUESTION_IMPORT_ENABLED) {
+          response = { success: false, message: "ระบบเพิ่มและนำเข้าข้อสอบถูกปิดใช้งานชั่วคราว" };
+        } else if (action === "importQuestionFile") {
+          response = requireRole(session, ["instructor", "admin"]) || handleImportQuestionFile(ss, session, postData);
+        } else if (action === "getImportJobs") {
+          response = requireRole(session, ["instructor", "admin"]) || handleGetImportJobs(ss);
+        } else {
+          response = requireRole(session, ["instructor", "admin"]) || handleApproveImportJob(ss, session, postData);
+        }
       } else if (action === "getQuestions") {
         response = handleGetQuestions(ss, postData.subjectCode);
       } else if (action === "getLeaderboard") {

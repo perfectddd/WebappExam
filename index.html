@@ -107,13 +107,18 @@
           <textarea id="exam-set-question-ids" class="form-control" rows="2" placeholder="Q-MATH-001,Q-MATH-002"></textarea>
         </div>
         <button id="create-exam-set-btn" class="btn btn-primary">สร้างชุดข้อสอบ</button>
-        <hr>
-        <label class="form-label" for="question-file-input">นำเข้า PDF, DOC, DOCX หรือ TXT (ไฟล์จะเข้าคิวตรวจทาน)</label>
-        <input id="question-file-input" class="form-control" type="file" accept=".pdf,.doc,.docx,.txt">
-        <button id="import-question-file-btn" class="btn btn-outline" style="margin-top:8px;">อัปโหลดไฟล์</button>
+        <div id="question-import-disabled-notice" class="settings-box" style="margin-top:20px;">
+          ระบบเพิ่มและนำเข้าข้อสอบถูกปิดใช้งานชั่วคราว
+        </div>
+        <div id="question-import-panel" hidden>
+          <hr>
+          <label class="form-label" for="question-file-input">นำเข้า PDF, DOC, DOCX หรือ TXT (ไฟล์จะเข้าคิวตรวจทาน)</label>
+          <input id="question-file-input" class="form-control" type="file" accept=".pdf,.doc,.docx,.txt">
+          <button id="import-question-file-btn" class="btn btn-outline" style="margin-top:8px;">อัปโหลดไฟล์</button>
+          <h4 style="margin-top:20px;">งานนำเข้าข้อสอบ</h4>
+          <div id="import-jobs-list"></div>
+        </div>
         <div id="exam-sets-list" style="margin-top:16px;"></div>
-        <h4 style="margin-top:20px;">งานนำเข้าข้อสอบ</h4>
-        <div id="import-jobs-list"></div>
       </section>
 
       <!-- Leaderboard Section -->
