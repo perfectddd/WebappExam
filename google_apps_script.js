@@ -225,7 +225,14 @@ function handleGetExamSetQuestions(ss, examSetId) {
   if (qid < 0 || text < 0 || choices.some(function (x) { return x < 0; })) return { success: false, message: "โครงสร้างตาราง Questions ไม่ถูกต้อง" };
   var allowed = {};
   iData.rows.filter(function (r) { return String(r[setIdx]) === String(examSetId); }).forEach(function (r) { allowed[String(r[qidIdx])] = true; });
-  var result = qData.rows.filter(function (r) { return allowed[String(r[qid])]; }).map(function (r) { return { questionId: serializeSheetValue(r[qid]), questionText: serializeSheetValue(r[text]), choices: choices.map(function (x) { return serializeSheetValue(r[x]); }) }; });
+  var result = [], seenIds = {};
+  for (var qRow = 0; qRow < qData.rows.length; qRow++) {
+    var questionId = String(qData.rows[qRow][qid]).trim();
+    if (!allowed[questionId]) continue;
+    if (seenIds[questionId]) return { success: false, message: "พบ QuestionID ซ้ำในชุดข้อสอบ: " + questionId };
+    seenIds[questionId] = true;
+    result.push({ questionId: serializeSheetValue(qData.rows[qRow][qid]), questionText: serializeSheetValue(qData.rows[qRow][text]), choices: choices.map(function (x) { return serializeSheetValue(qData.rows[qRow][x]); }) });
+  }
   return { success: true, questions: result };
 }
 
@@ -462,9 +469,16 @@ function handleGetQuestions(ss, subjectCode) {
   }
   
   var questions = [];
+  var seenQuestionIds = {};
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
     if (String(row[subCodeIdx]).trim() === String(subjectCode).trim()) {
+      var questionId = String(row[idIdx]).trim();
+      if (!questionId) continue;
+      if (seenQuestionIds[questionId]) {
+        return { success: false, message: "พบ QuestionID ซ้ำในวิชา " + subjectCode + ": " + questionId };
+      }
+      seenQuestionIds[questionId] = true;
       questions.push({
         questionId: serializeSheetValue(row[idIdx]),
         questionText: serializeSheetValue(row[textIdx]),
@@ -505,6 +519,7 @@ function handleSubmitQuiz(ss, studentId, name, subjectCode, mode, durationSecond
     return { success: false, message: "ชีต Questions ยังไม่มี header" };
   }
   var qHeaders = qData[0];
+  var qSubjectIdx = qHeaders.indexOf("SubjectCode");
   var qIdIdx = qHeaders.indexOf("QuestionID");
   var qTextIdx = qHeaders.indexOf("QuestionText");
   var qChoiceAIdx = qHeaders.indexOf("ChoiceA");
@@ -514,15 +529,49 @@ function handleSubmitQuiz(ss, studentId, name, subjectCode, mode, durationSecond
   var qAnsIdx = qHeaders.indexOf("CorrectAnswer");
   var qTopicIdx = qHeaders.indexOf("Topic");
   var qRationaleIdx = qHeaders.indexOf("Rationale");
-  if (qIdIdx === -1 || qTextIdx === -1 || qChoiceAIdx === -1 || qChoiceBIdx === -1 || qChoiceCIdx === -1 || qChoiceDIdx === -1 || qAnsIdx === -1) {
+  if (qSubjectIdx === -1 || qIdIdx === -1 || qTextIdx === -1 || qChoiceAIdx === -1 || qChoiceBIdx === -1 || qChoiceCIdx === -1 || qChoiceDIdx === -1 || qAnsIdx === -1) {
     return { success: false, message: "โครงสร้างตาราง Questions ไม่ถูกต้อง" };
   }
   
-  // Build a Map of questions in DB for fast lookup
+  // A normal quiz may only be graded against rows from its subject. For an
+  // exam set, only question IDs explicitly assigned to that set are allowed.
+  // Without this scope, duplicate IDs can overwrite the attempted question.
+  var normalizedSubjectCode = String(subjectCode).trim();
+  var allowedSetQuestionIds = null;
+  if (normalizedSubjectCode.indexOf("SET:") === 0) {
+    var examSetId = normalizedSubjectCode.slice(4).trim();
+    var examSetItemsSheet = ss.getSheetByName("ExamSetItems");
+    if (!examSetId || !examSetItemsSheet) {
+      return { success: false, message: "ไม่พบชุดข้อสอบที่ใช้ตรวจคำตอบ" };
+    }
+    var itemData = examSetItemsSheet.getDataRange().getDisplayValues();
+    if (!itemData.length) return { success: false, message: "ชุดข้อสอบยังไม่มีรายการคำถาม" };
+    var itemSetIdx = itemData[0].indexOf("ExamSetID");
+    var itemQuestionIdx = itemData[0].indexOf("QuestionID");
+    if (itemSetIdx === -1 || itemQuestionIdx === -1) {
+      return { success: false, message: "โครงสร้างตาราง ExamSetItems ไม่ถูกต้อง" };
+    }
+    allowedSetQuestionIds = {};
+    for (var itemRow = 1; itemRow < itemData.length; itemRow++) {
+      if (String(itemData[itemRow][itemSetIdx]).trim() === examSetId) {
+        allowedSetQuestionIds[String(itemData[itemRow][itemQuestionIdx]).trim()] = true;
+      }
+    }
+  }
+
+  // Build a scoped map and reject duplicate IDs rather than overwriting them.
   var qMap = {};
   for (var i = 1; i < qData.length; i++) {
     var row = qData[i];
     var qId = String(row[qIdIdx]).trim();
+    if (!qId) continue;
+    var belongsToQuiz = allowedSetQuestionIds
+      ? !!allowedSetQuestionIds[qId]
+      : String(row[qSubjectIdx]).trim() === normalizedSubjectCode;
+    if (!belongsToQuiz) continue;
+    if (qMap[qId]) {
+      return { success: false, message: "พบ QuestionID ซ้ำในขอบเขตข้อสอบ: " + qId + " กรุณาแก้ไขในชีต Questions" };
+    }
     qMap[qId] = {
       text: serializeSheetValue(row[qTextIdx]),
       choices: [serializeSheetValue(row[qChoiceAIdx]), serializeSheetValue(row[qChoiceBIdx]), serializeSheetValue(row[qChoiceCIdx]), serializeSheetValue(row[qChoiceDIdx])],
