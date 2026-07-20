@@ -97,19 +97,51 @@ function doPost(e) {
 }
 
 function createSessionToken(user) {
-  var token = Utilities.getUuid();
-  CacheService.getScriptCache().put("quiz_session:" + token, JSON.stringify(user), 21600);
-  return token;
+  var payload = {
+    studentId: String(user.studentId),
+    name: String(user.name || ""),
+    role: String(user.role || "student"),
+    exp: Date.now() + (12 * 60 * 60 * 1000)
+  };
+  var encoded = Utilities.base64EncodeWebSafe(JSON.stringify(payload), Utilities.Charset.UTF_8).replace(/=+$/, "");
+  var signature = Utilities.base64EncodeWebSafe(
+    Utilities.computeHmacSha256Signature(encoded, getSessionSigningSecret(), Utilities.Charset.UTF_8)
+  ).replace(/=+$/, "");
+  return encoded + "." + signature;
 }
 
 function getSessionFromToken(token) {
   if (!token) return null;
-  var raw = CacheService.getScriptCache().get("quiz_session:" + String(token));
-  if (!raw) return null;
   try {
-    return JSON.parse(raw);
+    var parts = String(token).split(".");
+    if (parts.length !== 2) return null;
+    var expected = Utilities.base64EncodeWebSafe(
+      Utilities.computeHmacSha256Signature(parts[0], getSessionSigningSecret(), Utilities.Charset.UTF_8)
+    ).replace(/=+$/, "");
+    if (parts[1] !== expected) return null;
+    var session = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString("UTF-8"));
+    if (!session.exp || Number(session.exp) <= Date.now()) return null;
+    return session;
   } catch (err) {
     return null;
+  }
+}
+
+function getSessionSigningSecret() {
+  var properties = PropertiesService.getScriptProperties();
+  var secret = properties.getProperty("SESSION_SIGNING_SECRET");
+  if (secret) return secret;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    secret = properties.getProperty("SESSION_SIGNING_SECRET");
+    if (!secret) {
+      secret = Utilities.getUuid() + Utilities.getUuid();
+      properties.setProperty("SESSION_SIGNING_SECRET", secret);
+    }
+    return secret;
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -147,6 +179,12 @@ function readRowsByHeaders(sheet) {
   return { headers: values[0].map(function (v) { return String(v).trim(); }), rows: values.slice(1) };
 }
 
+function readDisplayRowsByHeaders(sheet) {
+  var values = sheet.getDataRange().getDisplayValues();
+  if (!values || values.length === 0) return { headers: [], rows: [] };
+  return { headers: values[0].map(function (v) { return String(v).trim(); }), rows: values.slice(1) };
+}
+
 function headerIndex(headers, name) { return headers.indexOf(name); }
 
 // Google Sheets returns date cells as JavaScript Date objects. Serialize them
@@ -179,7 +217,7 @@ function handleGetExamSetQuestions(ss, examSetId) {
   if (!examSetId || String(examSetId).length > 100) return { success: false, message: "รหัสชุดข้อสอบไม่ถูกต้อง" };
   var items = ss.getSheetByName("ExamSetItems"), questions = ss.getSheetByName("Questions");
   if (!items || !questions) return { success: false, message: "ยังไม่ได้ตั้งค่าชีตชุดข้อสอบ" };
-  var iData = readRowsByHeaders(items), qData = readRowsByHeaders(questions);
+  var iData = readRowsByHeaders(items), qData = readDisplayRowsByHeaders(questions);
   var setIdx = headerIndex(iData.headers, "ExamSetID"), qidIdx = headerIndex(iData.headers, "QuestionID");
   if (setIdx < 0 || qidIdx < 0) return { success: false, message: "โครงสร้างตาราง ExamSetItems ไม่ถูกต้อง" };
   var qid = headerIndex(qData.headers, "QuestionID"), text = headerIndex(qData.headers, "QuestionText");
@@ -198,7 +236,7 @@ function handleCreateExamSet(ss, session, data) {
   if (new Set(ids).size !== ids.length) return { success: false, message: "มีรหัสข้อสอบซ้ำ" };
   var questionSheet = ss.getSheetByName("Questions");
   if (!questionSheet) return { success: false, message: "ไม่พบชีต Questions" };
-  var questionData = readRowsByHeaders(questionSheet), questionIdIdx = headerIndex(questionData.headers, "QuestionID"), validIds = {};
+  var questionData = readDisplayRowsByHeaders(questionSheet), questionIdIdx = headerIndex(questionData.headers, "QuestionID"), validIds = {};
   if (questionIdIdx < 0) return { success: false, message: "ไม่พบคอลัมน์ QuestionID" };
   questionData.rows.forEach(function (row) { validIds[String(row[questionIdIdx]).trim()] = true; });
   var missingIds = ids.filter(function (questionId) { return !validIds[questionId]; });
@@ -327,7 +365,7 @@ function handleLogin(ss, studentId, password) {
   var sheet = ss.getSheetByName("Users");
   if (!sheet) return { success: false, message: "ไม่พบชีต Users" };
   
-  var data = sheet.getDataRange().getValues();
+  var data = sheet.getDataRange().getDisplayValues();
   if (!data || data.length === 0 || !data[0]) {
     return { success: false, message: "ชีต Users ยังไม่มี header" };
   }
@@ -405,7 +443,7 @@ function handleGetQuestions(ss, subjectCode) {
   var sheet = ss.getSheetByName("Questions");
   if (!sheet) return { success: false, message: "ไม่พบชีต Questions" };
   
-  var data = sheet.getDataRange().getValues();
+  var data = sheet.getDataRange().getDisplayValues();
   if (!data || data.length === 0 || !data[0]) {
     return { success: false, message: "ชีต Questions ยังไม่มี header" };
   }
@@ -462,7 +500,7 @@ function handleSubmitQuiz(ss, studentId, name, subjectCode, mode, durationSecond
   var qSheet = ss.getSheetByName("Questions");
   if (!qSheet) return { success: false, message: "ไม่พบชีต Questions" };
   
-  var qData = qSheet.getDataRange().getValues();
+  var qData = qSheet.getDataRange().getDisplayValues();
   if (!qData || qData.length === 0 || !qData[0]) {
     return { success: false, message: "ชีต Questions ยังไม่มี header" };
   }
